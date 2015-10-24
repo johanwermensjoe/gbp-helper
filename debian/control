@@ -1,0 +1,15 @@
+Source: gbp-helper
+Section: python
+Priority: optional
+Maintainer: Johan Wermensjö, <johanwermensjoe@gmail.com>
+Build-Depends: debhelper (>= 9),
+Standards-Version: 3.9.5
+
+Package: gbp-helper
+Architecture: all
+Depends: ${misc:Depends},
+         git-buildpackage
+Description: is a helper script to build debian packages with git
+ The script uses config files to specify branch names etc.
+ for your projects and helps you maintain three core branches:
+ release (for upstream dev), upstream and debian (for package).
