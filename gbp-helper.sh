@@ -8,6 +8,7 @@ version="0.1"
 commitRelease=false    
 testBuild=false
 commitBuild=false
+undoCommitRelease=false
 createConfig=false
 showHelp=false
 showVersion=false
@@ -27,6 +28,10 @@ while getopts ":rtbp:ehv" opt; do
         b)
             echo "Commit build enabled" >&2
             commitBuild=true
+            ;;
+        u)
+            echo "Undo commit release enabled" >&2
+            undoCommitRelease=true
             ;;
         p)
             echo "Config path is set to: $OPTARG"
@@ -119,6 +124,22 @@ get_head_tags () {
 #    [ ! -z $latestTags ] && echo $latestTags
 #}
 ############################## TODO ###################################
+
+# Retrives the latest tag version (for tags: <tag_type>/<version>) for a branch: 
+# $1=branch_name $2=tag_type
+get_tag () {
+    # Get the latest tags.
+    check_head_tags $1 || return 1
+    local latestTags=$(get_head_tags $1)
+    
+    # Make sure atleast some tag follows the right format.
+    local matchingTags=$(echo $latestTags | grep -Eo -m 1 "^$2/[0-9.]*$")
+    
+    # Check if empty.
+    ([ ! -z $matchingTags ] && (echo $matchingTag; return 0)) || \
+        (echo "Error: The latest commit on branch <$1> has no properly formatted tags"; \
+        echo "Please properly tag your latest <$1> commit as: $2/<version>"; return 1)
+}
 
 # Retrives the latest tag version (for tags: <tag_type>/<version>) for a branch: 
 # $1=branch_name $2=tag_type
@@ -219,10 +240,6 @@ update_build_vars () {
     # Set build paths.
     tmpPath="/tmp/$packageName"
     buildDir="../build-area"
-
-    # Get the tagged version from the release branch.
-    releaseVersion=$(get_tag_version $releaseBranch $releaseTagType) || \
-    	(echo $releaseVersion; return 1)
 }
 
 
@@ -241,13 +258,31 @@ fi
 # Show version (-v)
 if [ $showVersion = true ]; then
     echo $version
-    # Always exit after creation.
+    # Always exit after showing version.
     exit 0
 fi
 
 # Create example config (-e)
 if [ $createConfig = true ]; then
     create_ex_config $configPath
+    # Always exit after creation.
+    exit 0
+fi
+
+# Undo commit release (-u)
+if [ $undoCommitRelease = true ]; then #TODO
+    # Find out what the latest merge commit between upstream and debian branches.
+    
+    # Reset debian to the previous commit to the merge.
+    switch_branch $debianBranch
+    git reset --hard HEAD~1
+    
+    # Reset upstream to the previous commit to its HEAD.
+    upstreamTag=get_tag $upstreamBranch $upstreamTagType
+    switch_branch $upstreamBranch
+    git reset --hard HEAD~1
+    git tag -d $upstreamTag
+    
     # Always exit after creation.
     exit 0
 fi
@@ -262,9 +297,13 @@ if [ $commitRelease = true ]; then
     sourceDirName="$packageName-$releaseVersion"
     sourceDirPath="$tmpPath/$sourceDirName"
     tarPath="$tmpPath/${packageName}_${releaseVersion}.orig.tar.gz"
+    
+    # Get the tagged version from the release branch.
+    releaseVersion=$(get_tag_version $releaseBranch $releaseTagType) || \
+    	(echo $releaseVersion; exit 1)
 
     # Check that the release version is greater than the upstream version.
-    upstreamVersion=$(get_tag_version $upstreamBranch $upstreamTagType) &&
+    upstreamVersion=$(get_tag_version $upstreamBranch $upstreamTagType) && \
     	is_version_lte $releaseVersion $upstreamVersion && \
             (echo "Error: Release version is less than upstream version, aborting"; exit 1) || \
                 (echo $upstreamVersion; echo "No upstream version detected, asuming 0"; exit 0)
