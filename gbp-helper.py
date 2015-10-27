@@ -1,75 +1,46 @@
-#!/bin/sh -e
+#!/bin/env python
 
-version="0.1"
+import argparse
+import os
+
+__version__ = "0.2"
 
 ########################## Argument Parsing #############################
 #########################################################################
 
-commitRelease=false    
-testBuild=false
-commitBuild=false
-undoCommitRelease=false
-uploadBuild=false
-createConfig=false
-showHelp=false
-showVersion=false
-configPath="./gbp-helper.conf"
-masterBranch="master"
 
-while getopts ":rtbp:ehvzu" opt; do
-    case $opt in
-        r)
-            echo "Commit release enabled" >&2
-            commitRelease=true    
-            ;;
-        t)
-            echo "Test build enabled" >&2
-            testBuild=true
-            ;;
-        b)
-            echo "Commit build enabled" >&2
-            commitBuild=true
-            ;;
-        z)
-            echo "Undo commit release enabled" >&2
-            undoCommitRelease=true
-            ;;
-        u)
-            echo "Upload latest build enabled" >&2
-            uploadBuild=true
-            ;;
-        p)
-            echo "Config path is set to: $OPTARG"
-            configPath=$OPTARG
-            ;;
-        e)
-            createConfig=true
-            ;;
-        h)
-            showHelp=true
-            ;;
-        v)
-            showVersion=true
-            ;;
-        \?)
-            echo "Invalid option: -$OPTARG" >&2
-            exit 1
-            ;;
-        :)
-            echo "Option -$OPTARG requires an argument." >&2
-            exit 1
-            ;;
-    esac
-done
+# Start
+parser = argparse.ArgumentParser(description='Helps maintain debian packeges with git.')
 
-# Check for optional path argument.
-pathArg=$(eval "echo \$$OPTIND")
-if [ "" != "$pathArg" ]; then
-    # Change directory before running commands.
-    cd $pathArg >/dev/null 2>&1 || \
-        (echo "Please give a proper path as optional argument"; exit 1)
-fi
+parser.add_argument('--version', '-V', action='store_true', \
+    help='shows the version')
+parser.add_argument('--safemode', '-s', action='store_true', \
+    help='disables any file changes')
+parser.add_argument('--verbose', '-v', action='store_true', \
+    help='enables verbose mode')
+parser.add_argument('--commit-release', '-r', action='store_true', \
+    help='commits the latest release to upstream and merges with debian branch')
+parser.add_argument('--test-build', '-t', action='store_true', \
+    help='builds the latest debian commit')
+parser.add_argument('--commit-build', '-b', action='store_true', \
+    help='builds and tags the latest debian commit')
+parser.add_argument('--undo-release', '-z', action='store_true', \
+    help='undo the latest release commit (rollback upstream and debian branches)')
+parser.add_argument('--upload-build', '-u', action='store_true', \
+    help='uploads the latest build to the configured ppa')
+parser.add_argument('--create-config', '-e', action='store_true', \
+    help='creates an example gbp-helper.conf file')
+parser.add_argument('--config', \
+    help='path to the gbp-helper.conf file')
+parser.add_argument('--config', \
+    help='path to the gbp-helper.conf file')
+parser.add_argument('dir', nargs='?', default=os.getcwd())
+    
+args = parser.parse_args()
 
+## Constants
+configPath = "./gbp-helper.conf"
+masterBranch = "master"
 
 ############################ Build Tools ################################
 #########################################################################
@@ -79,18 +50,23 @@ fi
 
 ## Functions
 
+# Prints log messages depending on verbose flag and priority.
+# Default priority is 0 which only prints if verbose, 1 always prints.
+def printMsg(msg, priority=0):
+    if priority > 1 or args.verbose:
+        print msg
+
 # Checks if the current directory is a git repository.
 # Returns 1 if an error occured and prints message.
-is_git_rep () {
-    (git status >/dev/null 2>&1 && return 0) || \
-        (echo "Error: The current directory is not a git repository"; \
-        echo "Please make sure that the script is given the proper path"; return 1)
-}
+def is_git_rep(): #TODO
+    if git status >/dev/null 2>&1 && return 0):
+        print "Error: The current directory is not a git repository"; \
+        print "Please make sure that the script is given the proper path"; return 1)
 
 # Switches to git branch:
 # $1=branch_name
 # Returns 1 if an error occured and prints message.
-switch_branch () {
+def switch_branch (): #TODO
     # Verify that the current dir is agit repository.
     is_git_rep || return 1
     
@@ -98,25 +74,15 @@ switch_branch () {
     (git checkout $1 >/dev/null 2>&1 && return 0) || \
         (echo "Error: Could not switch to branch: <$1>"; \
         echo "Please make sure that the branch <$1> exists and all changes are commited"; return 1)
-}
 
-# Check for tags for the latest commit (HEAD):
+# Retrives the tags for the latest commit (HEAD):
 # $1=branch_name
 # Returns 1 if an error occured or no tags exist and prints message.
-check_head_tags () {
+def get_head_tags (): #TODO
     switch_branch $1 || return 1
     local headTags=$(git tag --points-at HEAD)
     ([ ! -z $headTags ] && return 0) || \
         (echo "Error: The latest commit on branch <$1> has no tags"; return 1)
-}
-
-# Retrives all tags for the latest commit (HEAD):
-# $1=branch_name
-get_head_tags () {
-    switch_branch $1 || return 1
-    local headTags=$(git tag --points-at HEAD)
-    [ ! -z $headTags ] && echo $headTags
-}
 
 ############################## TODO ###################################
 # Retrives the latest tag:
@@ -132,72 +98,78 @@ get_head_tags () {
 
 # Retrives the HEAD tag version (for tags: <tag_type>/<version>) for a branch: 
 # $1=branch_name $2=tag_type
-get_tag () {
+def get_tag (): #TODO
     # Get the latest tags.
-    check_head_tags $1 || return 1
-    local headTags=$(get_head_tags $1)
+    headTags=$(get_head_tags $1)
     
     # Make sure atleast some tag follows the right format.
-    local matchingTag=$(echo $headTags | grep -Eo -m 1 "^$2/.*$")
+    matchingTag=$(echo $headTags | grep -Eo -m 1 "^$2/.*$")
     
     # Check if empty.
     ([ ! -z $matchingTag ] && (echo $matchingTag; return 0)) || \
         (echo "Error: The latest commit on branch <$1> has no properly formatted tags"; \
         echo "Please properly tag your latest <$1> commit as: $2/<version>"; return 1)
-}
 
 # Retrives the HEAD tag version (for tags: <tag_type>/<version>) for a branch: 
 # $1=branch_name $2=tag_type
-get_tag_version () {
+def get_tag_version: #TODO
     # Get the latest tags.
-    check_head_tags $1 && local headTags=$(get_head_tags $1) || return 1
+    headTags=$(get_head_tags $1) || return 1
     
     # Make sure atleast some tag follows the right format.
-    local tagVersion=$(echo $headTags | grep -Po -m 1 "(?<=$2/).*")
-    echo "test"
+    tagVersion=$(echo $headTags | grep -Po -m 1 "(?<=$2/).*")
+
     # Check if empty.
     ([ ! -z $tagVersion ] && (echo $tagVersion; return 0)) || \
         (echo "Error: The latest commit on branch <$1> has no properly formatted tags"; \
         echo "Please properly tag your latest <$1> commit as: $2/<version>"; return 1)
-}
 
 # Checks whether the first version string is greater than or equal to the second: 
 # $1=first_version $2=second_version
-is_version_lte () {
+def is_version_lte ():  #TODO
     [ "$1" = "`echo -e "$1\n$2" | sort -V | head -n1`" ]
-}
 
 # Checks whether the first version string is greater than the second: 
 # $1=first_version $2=second_version
-is_version_lt () {
+def is_version_lt ():  #TODO
     [ "$1" = "$2" ] && return 1 || return is_version_lte $1 $2
-}
 
 # Cleans or if not existant creates it: 
 # $1=dir_path
-clean_dir () {
+def clean_dir (): #TODO
     echo "Cleaning build directory: $1"
     if [ -d "$1" ]; then
         # Clean old build files.
         rm -r "$1"
     fi
     mkdir -p $1
-}
 
 # Cleans the default build directory and switches to the release branch:
 # No args 
-prepare_build () {
+def prepare_build ():  #TODO
     # Make sure we are on the debian branch.
     echo "Switching to debian branch: <$debianBranch>"
     switch_branch $debianBranch
 
     echo "Cleaning old build"
     clean_dir $buildDir
-}
+
+ex_config = 
+    "## gbp-helper.conf: $(basename $(pwd))\n\n" + \
+    "#[REQUIRED]\n\n" + \
+    "releaseBranch=master\n" + \
+    "releaseTagType=release\n\n" + \
+    "debianBranch=debian\n" + \
+    "debianTagType=debian\n\n" + \
+    "upstreamBranch=upstream\n" + \
+    "upstreamTagType=upstream\n\n" + \
+    "#[OPTIONAL]\n\n" + \
+    "gpgKeyId=\n\n" + \
+    "ppaName="
 
 # Creates an example gbp-helper.conf file.
 # $1=config_path
-create_ex_config () {
+def create_ex_config: #TODO
     # Make sure file does not exist.
     if [ -e "$1" ]; then
         echo "$1 exists and will not be replaced by an example file"
@@ -206,19 +178,10 @@ create_ex_config () {
 
     # Create the example file.
     echo "Creating example config file"
-    echo "## gbp-helper.conf: $(basename $(pwd))\n\n"\
-"#[REQUIRED]\n\n"\
-"releaseBranch=master\nreleaseTagType=release\n\n"\
-"debianBranch=debian\ndebianTagType=debian\n\n"\
-"upstreamBranch=upstream\nupstreamTagType=upstream\n\n"\
-"#[OPTIONAL]\n\n"\
-"gpgKeyId=\n\nppaName="\
- > $1
-}
 
 # Asks for user confirmation [y/N].
 # $1=prompt
-prompt_user_yn () {
+def prompt_user_yn: #TODO
     read -r -p "$1 [y/N] " response
     case $response in
         [yY][eE][sS]|[yY]) 
@@ -228,11 +191,10 @@ prompt_user_yn () {
             return 1
             ;;
     esac
-}
 
 # Update the config variables.
 # $1=config_path
-update_config_vars () {
+def update_config_vars(): #TODO
     echo "Reading config file"
     # Switch branch to master before trying to read config.
     switch_branch $masterBranch
@@ -241,7 +203,6 @@ update_config_vars () {
         str="$key='$val'"
         echo "$str"
     done)
-}
 
 # Updates standard global build variables (release version, package name etc.) and
 # values from config file.
@@ -249,7 +210,7 @@ update_config_vars () {
 #   - Ensured that the current dir is a git repository.
 #   - Switched to the release branch.
 #   - Ensured that the latest release commit is propperly tagged.
-update_build_vars () {
+def update_build_vars(): #TODO
     # Update from config.    
     update_config_vars $configPath
 
@@ -260,7 +221,6 @@ update_build_vars () {
     # Set build paths.
     tmpPath="/tmp/$packageName"
     buildDir="../build-area"
-}
 
 
 ######################### Command Execution #############################
