@@ -2,8 +2,26 @@
 
 import argparse
 import os
+import shutil
+import re
 
 __version__ = "0.2"
+
+## Constants
+DEFAULT_CONFIG_PATH = "./gbp-helper.conf"
+MASTER_BRANCH = "master"
+EX_CONFIG = 
+    "## gbp-helper.conf: $(basename $(pwd))\n\n" + \
+    "#[REQUIRED]\n\n" + \
+    "releaseBranch=master\n" + \
+    "releaseTagType=release\n\n" + \
+    "debianBranch=debian\n" + \
+    "debianTagType=debian\n\n" + \
+    "upstreamBranch=upstream\n" + \
+    "upstreamTagType=upstream\n\n" + \
+    "#[OPTIONAL]\n\n" + \
+    "gpgKeyId=\n\n" + \
+    "ppaName="
 
 ########################## Argument Parsing #############################
 #########################################################################
@@ -28,24 +46,18 @@ parser.add_argument('--undo-release', '-z', action='store_true', \
     help='undo the latest release commit (rollback upstream and debian branches)')
 parser.add_argument('--upload-build', '-u', action='store_true', \
     help='uploads the latest build to the configured ppa')
-parser.add_argument('--create-config', '-e', action='store_true', \
+parser.add_argument('--create-config', action='store_true', \
     help='creates an example gbp-helper.conf file')
-parser.add_argument('--config', \
-    help='path to the gbp-helper.conf file')
 parser.add_argument('--config', \
     help='path to the gbp-helper.conf file')
 parser.add_argument('dir', nargs='?', default=os.getcwd())
     
 args = parser.parse_args()
 
-## Constants
-configPath = "./gbp-helper.conf"
-masterBranch = "master"
-
 ############################ Build Tools ################################
 #########################################################################
 ### This section defines functions useful for buil operations.
-### If a failure occurs it will terminate with error messages.
+### If a failure occurs it will terminate with exeptions.
 #########################################################################
 
 ## Functions
@@ -59,130 +71,114 @@ def printMsg(msg, priority=0):
 # Checks if the current directory is a git repository.
 # Returns 1 if an error occured and prints message.
 def is_git_rep(): #TODO
-    if git status >/dev/null 2>&1 && return 0):
-        print "Error: The current directory is not a git repository"; \
-        print "Please make sure that the script is given the proper path"; return 1)
+    try:
+        git status >/dev/null 2>&1
+        return True
+    except:
+        return False
 
 # Switches to git branch:
-# $1=branch_name
 # Returns 1 if an error occured and prints message.
-def switch_branch (): #TODO
-    # Verify that the current dir is agit repository.
-    is_git_rep || return 1
-    
-    # Try to switch branch.
-    (git checkout $1 >/dev/null 2>&1 && return 0) || \
-        (echo "Error: Could not switch to branch: <$1>"; \
-        echo "Please make sure that the branch <$1> exists and all changes are commited"; return 1)
+def switch_branch(branchName):
+    # Verify that the current dir is a git repository.
+    if is_git_rep():
+        # Try to switch branch.
+        try:
+            (git checkout $1 >/dev/null 2>&1 && return 0) #TODO
+        except:
+            raise Exception(branchName, "Please make sure that the branch " \
+                                        "<" + branchName + "> exists and all changes are commited"
+    else:
+        raise Exception(pwd + " or " + arg.dir, \
+                            "The current directory is not a git repository")
 
 # Retrives the tags for the latest commit (HEAD):
-# $1=branch_name
 # Returns 1 if an error occured or no tags exist and prints message.
-def get_head_tags (): #TODO
-    switch_branch $1 || return 1
-    local headTags=$(git tag --points-at HEAD)
-    ([ ! -z $headTags ] && return 0) || \
-        (echo "Error: The latest commit on branch <$1> has no tags"; return 1)
+def get_head_tags(branchName):
+    switch_branch(branchName)
+    headTags=$(git tag --points-at HEAD) #TODO
+    
+    # Check that some tags exists.    
+    if not headTags:
+        raise Exception(branchName, "The HEAD on branch <$1> has no tags")
+    
+    return headTags
 
-############################## TODO ###################################
-# Retrives the latest tag:
-# $1=branch_name
-#get_latest_tag () {
-#   git describe --abbrev=0 --tags
-#    
-#    switch_branch $1 || return 0
-#    local latestTags=$(git tag --points-at HEAD)
-#    [ ! -z $latestTags ] && echo $latestTags
-#}
-############################## TODO ###################################
+# Retrives the latest HEAD tag (for tags: <tag_type>/<version>) for a branch. 
+def get_head_tag(branchName, tagType):
+    # Get the latest HEAD tags.
+    headTags = get_head_tags(branchName)
+        
+    # Find the matching tags.
+    matchingTags = re.match(r'''^tagType/*$''', headTags) #TODO multiline?
+
+    # Make sure atleast some tag follows the right format.
+    if matchingTags:
+        # Find the "latest tag". #TODO
+    else:
+        raise Exception(headTags, "The HEAD on branch \'" + branchName + \
+                            "\' has no tags of type: " tagType + "/<version>")
 
 # Retrives the HEAD tag version (for tags: <tag_type>/<version>) for a branch: 
-# $1=branch_name $2=tag_type
-def get_tag (): #TODO
-    # Get the latest tags.
-    headTags=$(get_head_tags $1)
+def get_tag_version(branchName, tagType):
+    # Get the latest HEAD tag.
+    headTag = get_head_tag(branchName, tagType) #TODO
     
-    # Make sure atleast some tag follows the right format.
-    matchingTag=$(echo $headTags | grep -Eo -m 1 "^$2/.*$")
-    
-    # Check if empty.
-    ([ ! -z $matchingTag ] && (echo $matchingTag; return 0)) || \
-        (echo "Error: The latest commit on branch <$1> has no properly formatted tags"; \
-        echo "Please properly tag your latest <$1> commit as: $2/<version>"; return 1)
+    # Get the version part of the tag.
+    tagVersion = re.match(r'''^tagType/(*$)''', headTag) #TODO
 
-# Retrives the HEAD tag version (for tags: <tag_type>/<version>) for a branch: 
-# $1=branch_name $2=tag_type
-def get_tag_version: #TODO
-    # Get the latest tags.
-    headTags=$(get_head_tags $1) || return 1
-    
-    # Make sure atleast some tag follows the right format.
-    tagVersion=$(echo $headTags | grep -Po -m 1 "(?<=$2/).*")
-
-    # Check if empty.
-    ([ ! -z $tagVersion ] && (echo $tagVersion; return 0)) || \
-        (echo "Error: The latest commit on branch <$1> has no properly formatted tags"; \
-        echo "Please properly tag your latest <$1> commit as: $2/<version>"; return 1)
+    if tagVersion:
+        return tagVersion
+    else:
+        raise Exception(headTag, "A tag version could not be extracted")
 
 # Checks whether the first version string is greater than or equal to the second: 
-# $1=first_version $2=second_version
-def is_version_lte ():  #TODO
+def is_version_lte(v1, v2):  #TODO
     [ "$1" = "`echo -e "$1\n$2" | sort -V | head -n1`" ]
 
-# Checks whether the first version string is greater than the second: 
-# $1=first_version $2=second_version
-def is_version_lt ():  #TODO
+# Checks whether the first version string is greater than the second.
+def is_version_lt(v1, v2):  #TODO
     [ "$1" = "$2" ] && return 1 || return is_version_lte $1 $2
 
-# Cleans or if not existant creates it: 
-# $1=dir_path
-def clean_dir (): #TODO
-    echo "Cleaning build directory: $1"
-    if [ -d "$1" ]; then
-        # Clean old build files.
-        rm -r "$1"
-    fi
-    mkdir -p $1
+# Cleans or if not existant creates a directory.
+def clean_dir(dirPath):
+    remove_dir(dirPath)
+    os.makedirs(dirPath)    
 
-# Cleans the default build directory and switches to the release branch:
-# No args 
-def prepare_build ():  #TODO
+# Removes a directory.
+def remove_dir(dirPath):
+    if os.path.isdir(dirPath):
+        # Remove directory recursively.
+        shutil.rmtree(dirPath)
+
+# Cleans the default build directory and switches to the release branch.
+def prepare_build():
     # Make sure we are on the debian branch.
-    echo "Switching to debian branch: <$debianBranch>"
-    switch_branch $debianBranch
+    printMsg("Switching to debian branch: <$debianBranch>")
+    switch_branch(debianBranch)
 
-    echo "Cleaning old build"
-    clean_dir $buildDir
-
-ex_config = 
-    "## gbp-helper.conf: $(basename $(pwd))\n\n" + \
-    "#[REQUIRED]\n\n" + \
-    "releaseBranch=master\n" + \
-    "releaseTagType=release\n\n" + \
-    "debianBranch=debian\n" + \
-    "debianTagType=debian\n\n" + \
-    "upstreamBranch=upstream\n" + \
-    "upstreamTagType=upstream\n\n" + \
-    "#[OPTIONAL]\n\n" + \
-    "gpgKeyId=\n\n" + \
-    "ppaName="
+    printMsg("Cleaning old build")
+    clean_dir(buildDir)
 
 # Creates an example gbp-helper.conf file.
-# $1=config_path
-def create_ex_config: #TODO
+def create_ex_config(configPath):
     # Make sure file does not exist.
-    if [ -e "$1" ]; then
-        echo "$1 exists and will not be replaced by an example file"
-        return 0
-    fi
-
-    # Create the example file.
-    echo "Creating example config file"
+    if os.path.exists(configPath):
+        printMsg(configPath + " exists and will not be replaced by an example file", 1)
+    else:
+        # Create the example file.
+        printMsg("Creating example config file")
+        try:
+            file = open(configPath, "w")
+            file.write(EX_CONFIG)
+            file.close()
+        except IOError as e:
+            printMsg("I/O error({0}): {1}".format(e.errno, e.strerror), 1)
+            
 
 # Asks for user confirmation [y/N].
-# $1=prompt
-def prompt_user_yn: #TODO
-    read -r -p "$1 [y/N] " response
+def prompt_user_yn(promptMsg): #TODO
+    read -r -p promptMsg + " [y/N] " response
     case $response in
         [yY][eE][sS]|[yY]) 
             return 0
@@ -193,9 +189,8 @@ def prompt_user_yn: #TODO
     esac
 
 # Update the config variables.
-# $1=config_path
-def update_config_vars(): #TODO
-    echo "Reading config file"
+def update_config_vars(configPath): #TODO
+    printMsg("Reading config file")
     # Switch branch to master before trying to read config.
     switch_branch $masterBranch
     eval $(sed '/=/!d;/^ *#/d;s/=/ /;' < "$1" | while read -r key val
@@ -214,12 +209,12 @@ def update_build_vars(): #TODO
     # Update from config.    
     update_config_vars $configPath
 
-    echo "Setting build variables"
+    printMsg("Setting build variables")
     # Get package name from repository name (parent dir name).
     packageName=$(basename $(pwd))
 
     # Set build paths.
-    tmpPath="/tmp/$packageName"
+    tmpPath="/tmp/" + packageName
     buildDir="../build-area"
 
 
@@ -228,34 +223,25 @@ def update_build_vars(): #TODO
 
 ## Run the selected commands.
 
-# Show help menu (manpage) (-h)
-if [ $showHelp = true ]; then
-    man gbp-helper
-    # Always exit after help menu.
-    exit 0
-fi
-
-# Show version (-v)
-if [ $showVersion = true ]; then
-    echo $version
+# Show version.
+if args.version:
+    printMsg(__version__, 1)
     # Always exit after showing version.
-    exit 0
-fi
+    quit()
 
-# Create example config (-e)
-if [ $createConfig = true ]; then
+# Create example config.
+if args.create_config: #TODO
     create_ex_config $configPath
-    # Always exit after creation.
-    exit 0
-fi
+    # Always exit after config creation.
+    quit()
 
-# Undo commit release (-z)
-if [ $undoCommitRelease = true ]; then #TODO
+# Undo commit release.
+if args.undo_release: #TODO
     # Ask user for confirmation.
-    prompt_user_yn "Do you really want to undo the latest release commit?" || exit 0
+    prompt_user_yn("Do you really want to undo the latest release commit?") or quit()
 
     # Update the build variables.
-    update_build_vars
+    update_build_vars()
     
     # Find out what the latest merge commit between upstream and debian branches.
     
@@ -270,118 +256,114 @@ if [ $undoCommitRelease = true ]; then #TODO
     git tag -d $upstreamTag
     
     # Always exit after creation.
-    exit 0
-fi
+    quit()
 
-# Upload latest build (-u)
-if [ $uploadBuild = true ]; then #TODO
+# Upload latest build.
+if args.upload_build: #TODO
     # Ask user for confirmation
-    prompt_user_yn "Upload the latest build?" || exit 0
+    prompt_user_yn("Upload the latest build?") or quit()
 
     # Update the build variables.
-    update_build_vars
+    update_build_vars()
     
     # Check if ppa name is set in config.
-    if [ "$ppaName" = "" ]; then
-        echo "Your ppa name is not set in your gbp-helper.conf, aborting upload"
-        exit 1
-    fi
+    if not ppaName:
+        printMsg("Your ppa name is not set in your gbp-helper.conf, aborting upload", 1)
+        quit()
 
     # Make sure that the latest debian commit is tagged.
     debianTagVersion=get_tag_version "debian" $debianTagType ||
-        (echo $debianTagVersion; \
-        echo "The latest debian commit isn't porperly tagged, run gbp-helper -b"; exit 1)
+        echo $debianTagVersion
+        printMsg("The latest debian commit isn't porperly tagged, run gbp-helper -b", 1)
+        quit
 
     # Set the name of the .changes file and upload.
-    #dput "ppa:$ppaName" "../build-area/$packageName_$debianTagVersion_source.changes"
-    echo "ppa:$ppaName ../build-area/$packageName_$debianTagVersion_source.changes"
+    dput "ppa:" + ppaName + " ../build-area/" + packageName + "_" + \
+        debianTagVersion + "_source.changes"
     
     # Always exit after creation.
-    exit 0
-fi
+    quit()
 
-# Commit release (-r)
-if [ $commitRelease = true ]; then
+# Commit release.
+if args.commit_release: #TODO
     # Update the build variables.
-    update_build_vars
+    update_build_vars()
 
     # Constants
-    echo "Setting sourcedir"
-    sourceDirName="$packageName-$releaseVersion"
-    sourceDirPath="$tmpPath/$sourceDirName"
-    tarPath="$tmpPath/${packageName}_${releaseVersion}.orig.tar.gz"
+    printMsg("Setting sourcedir")
+    sourceDirName = packageName + "-" + releaseVersion
+    sourceDirPath = os.path.join(tmpPath, sourceDirName)s
+    tarPath = os.path.join(tmpPath, packageName + "_" + releaseVersion + ".orig.tar.gz")
     
     # Get the tagged version from the release branch.
-    releaseVersion=$(get_tag_version $releaseBranch $releaseTagType) || \
+    releaseVersion = get_tag_version(releaseBranch, releaseTagType) ||
     	(echo $releaseVersion; exit 1)
 
     # Check that the release version is greater than the upstream version.
-    upstreamVersion=$(get_tag_version $upstreamBranch $upstreamTagType) && \
-    	is_version_lte $releaseVersion $upstreamVersion && \
-            (echo "Error: Release version is less than upstream version, aborting"; exit 1) || \
-                (echo $upstreamVersion; echo "No upstream version detected, asuming 0"; exit 0)
+    upstreamVersion = get_tag_version(upstreamBranch, upstreamTagType) && 
+    	is_version_lte(releaseVersion, upstreamVersion) && 
+            (printMsg("Error: Release version is less than upstream version, aborting", 1); quit()) || \
+                (echo $upstreamVersion; printMsg("No upstream version detected, asuming 0", 1); quit())
 
     # Clean build directory.
-    clean_dir $tmpPath
-    mkdir $sourceDirPath
+    printMsg("Cleaning build directory")
+    clean_dir(tmpPath)
+    os.makedirs(sourceDirPath)
 
     # Extract the latest commit to release branch.
-    echo "Extracting latest commit from release branch: <$releaseBranch>"
-    git archive $releaseBranch | tar -x -C $sourceDirPath \
+    printMsg("Extracting latest commit from release branch: <$releaseBranch>")
+    git archive releaseBranch | tar -x -C sourceDirPath \
       --exclude='gbp-helper.conf' --exclude='README.md' --exclude='LICENSE' \
       --exclude-vcs
 
     # Create the upstream tarball.
-    echo "Making upstream tarball from release branch: <$releaseBranch>"
+    printMsg("Making upstream tarball from release branch: <$releaseBranch>")
     tar -C $tmpPath -czf $tarPath $sourceDirName
     
     # Commit tarball to upstream branch and tag.
-    echo "Importing tarball to upstream branch: <$upstreamBranch>"
+    printMsg("Importing tarball to upstream branch: <$upstreamBranch>")
 
     # Check if gpg key is set.
-    if [ "$gpgKeyId" = "" ]; then
-        echo "Your gpg key id is not set in your gbp-helper.conf, disabling tag signing."
+    if not gpgKeyId:
+        printMsg("Your gpg key id is not set in your gbp-helper.conf, disabling tag signing.", 1)
         gbp import-orig --merge --no-interactive \
             --debian-branch=$debianBranch --upstream-branch=$upstreamBranch $tarPath
-    else
+    else:
         gbp import-orig --merge --no-interactive --sign-tags --keyid=$gpgKeyId \
             --debian-branch=$debianBranch --upstream-branch=$upstreamBranch $tarPath
-    fi
 
     # Cleanup.git status
-    echo "Cleaning up"
-    rm -r $tmpPath
-fi
+    printMsg("Cleaning up")
+    remove_dir(tmpPath)
 
-# Test build (-t)
-if [ $testBuild = true ]; then
+# Test build.
+if args.test_build: #TODO
     # Update the build variables.
-    update_build_vars
+    update_build_vars()
     
     # Prepare build.
-    prepare_build
+    prepare_build()
 
     # Build and without tagging and do linthian checks.
-    echo "Building debian package"
+    printMsg("Building debian package")
     gbp buildpackage --git-debian-branch=$debianBranch --git-upstream-branch=$upstreamBranch \
       --git-export-dir=$buildDir --git-ignore-new --git-builder="debuild -S" \
       --git-postbuild='echo "Running Lintian..."' && lintian -I $GBP_CHANGES_FILE && echo "Lintian OK"
-fi
 
-# Commit build (-b)
-if [ $commitBuild = true ]; then
+# Commit build.
+if args.commit_build: #TODO
     # Update the build variables.
-    update_build_vars
+    update_build_vars()
     
     # Prepare build.
-    prepare_build
+    prepare_build()
 
     # Build and tag the latest debian branch commit and do linthian checks.
-    echo "Building debian package and tagging"
+    printMsg("Building debian package and tagging")
     
      # Check if gpg key is set.
-    if [ "$gpgKeyId" = "" ]; then
-        echo "Your gpg key id is not set in your gbp-helper.conf, disabling tag signing."
+    if not gpgKeyId:
+        printMsg("Your gpg key id is not set in your gbp-helper.conf, disabling tag signing.", 1)
         gbp buildpackage --git-tag \
             --git-debian-branch=$debianBranch --git-upstream-branch=$upstreamBranch \
             --git-export-dir=$buildDir --git-builder="debuild -S" \
@@ -393,8 +375,3 @@ if [ $commitBuild = true ]; then
             --git-export-dir=$buildDir --git-builder="debuild -S" \
             --git-postbuild='echo "Running Lintian..."' \
                 && lintian -I $GBP_CHANGES_FILE && echo "Lintian OK"
-    fi
-fi
-
-# Exit cleanly.
-exit 0

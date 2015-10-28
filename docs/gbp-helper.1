@@ -22,10 +22,8 @@ gbp-helper \- is a helper script to build debian packages with git
 .SH SYNOPSIS
 .B gbp-helper
 .RI [ options ] 
-.B [ -p
-.I config-file
-.B ] 
-.I gitpath
+[\fB\-\-config\fR \fICONFIG_FILE\fR]
+[\fIGIT_PATH\fR]
 .SH DESCRIPTION
 This manual page documents briefly the
 .B gbp-helper
@@ -44,30 +42,31 @@ options starting with two dashes (`-').
 A summary of options is included below.
 For a complete description, see the Info files.
 .TP
-.B \-h
+.B \-n ", " \-\-bits =\fIBITS\fR
+.B \-h ", " \-\-help
 Shows the help menu (manpage).
 .TP
-.B \-v
+.B \-V ", " \-\-version
 Shows the current version number.
 .TP
-.B \-r
+.B \-r ", " \-\-commit-release
 Commit the current release to the upstream branch and tag.
 Merge the created upstream with the debian branch.
 .TP
-.B \-t
+.B \-t ", " \-\-test-build
 Build the latest debian package but do not tag.
 .TP
-.B \-b
+.B \-b ", " \-\-commit-build
 Build the latest debian package and tag.
 .TP
-.B \-p
+B \-\-config =\fICONFIG_FILE\fR
 Set a path to the config file.
 .TP
-.B \-e
+.B \-\-create-config
 Create an example config file.
 .TP
-.B \-z
+.B \-z ", " \-\-undo-release
 Undo the latest commit release operation.
 .TP
-.B \-u
+.B \-u ", " \-\-upload-build
 Uploads the last build to a configured PPA.
