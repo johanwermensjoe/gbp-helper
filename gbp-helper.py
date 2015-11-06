@@ -27,6 +27,23 @@ EX_CONFIG = \
     "gpgKeyId=\n\n" + \
     "ppaName="
 
+CONFIG = \
+[   ('git', [ \
+        ('releaseBranch', "master", True), \
+        ('releaseTagType', "release", True), \
+        ('upstreamBranch', "upstream", True), \
+        ('upstreamTagType', "upstream", True), \
+        ('debianBranch', "debian", True), \
+        ('debianTagType', "debian", True), \
+    ]), \
+    ('signing', [ \
+        ('gpgKeyId', "", False) \
+    ]), \
+    ('upload', [ \
+        ('ppa', "", False) \
+    ]), \    
+]
+
 ########################## Argument Parsing #############################
 #########################################################################
 
@@ -62,42 +79,52 @@ args = parser.parse_args()
 # Start
 parser = argparse.ArgumentParser(description='Helps maintain debian packeges with git.')
 subparsers = parser.add_subparsers(help='sub-command help')
-parser.add_argument('--version', '-V', action='store_true', \
+parser.add_argument('-V', '--version', action='store_true', \
     help='shows the version')
-parser.add_argument('--create-config', action='store_true', \
+
+# The create-config subcommand.
+parser_c = subparsers.add_parser('create-config', action='store_true', \
     help='creates an example gbp-helper.conf file')
 
 # The commit-release subcommand.
-parser_r.add_argument('commit-release', action='store_true', \
+parser_r = subparsers.add_parser('commit-release', action='store_true', \
     help='commits the latest release to upstream and merges with debian branch')
-parser_r.add_argument('--undo', '-z', action='store_true', \
+parser_r.add_argument('-z', '--undo', action='store_true', \
     help='undo the latest release commit (rollback upstream and debian branches)')
-parser_r.add_argument('--verbose', '-v', action='store_true', \
-    help='enables verbose mode')
-parser_r.add_argument('--safemode', '-s', action='store_true', \
-    help='disables any file changes')
-parser_r.add_argument('--config', \
-    help='path to the gbp-helper.conf file')
-parser_r.add_argument('dir', nargs='?', default=os.getcwd())
 
 # The test-build subcommand.
-parser_t.add_argument('test-build', action='store_true', \
+parser_t = subparsers.add_parser('test-build', action='store_true', \
     help='builds the latest debian commit')
 
+
 # The commit-build subcommand.
-parser_b.add_argument('--commit-build', '-b', action='store_true', \
+parser_b = subparsers.add_parser('commit-build', action='store_true', \
     help='builds and tags the latest debian commit')
 
+
 # The upload-build subcommand.
-parser_u.add_argument('--upload-build', '-u', action='store_true', \
+parser_u = subparsers.add_parser('upload-build', action='store_true', \
     help='uploads the latest build to the configured ppa')
+
+# General args.
+group_vq = parser.add_mutually_exclusive_group()
+group_vq.add_argument('-v', '--verbose', action='store_true', \
+    help='enables verbose mode')
+group_vq.add_argument("-q", "--quiet", action="store_true". \
+    help='enables quiet mode')
+parser.add_argument('-s', '--safemode', action='store_true', \
+    help='disables any file changes')
+parser.add_argument('--config', \
+    help='path to the gbp-helper.conf file')
+parser.add_argument('dir', nargs='?', default=os.getcwd())
 
 args = parser.parse_args()
 
 ############################ Build Tools ################################
 #########################################################################
-### This section defines functions useful for buil operations.
-### If a failure occurs it will terminate with exeptions.
+### This section defines functions useful for build operations.
+### No functions will print any progress messages. 
+### If a failure occurs functions will terminate with exeptions.
 #########################################################################
 
 ## Functions
@@ -193,6 +220,14 @@ def get_tag_version(branchName, tagType):
     else:
         raise GitError("A tag version could not be extracted") #TODO
 
+
+############################# IO Tools ##################################
+#########################################################################
+### This section defines functions useful for file and ui operations.
+### Some functions will print progress messages.
+### If a failure occurs functions print an error message and terminate.
+#########################################################################
+
 # Checks whether the first version string is greater than or equal to the second: 
 def is_version_lte(v1, v2):
     versions = [v1, v2]
@@ -224,7 +259,10 @@ def prepare_build():
 
 # Creates an example gbp-helper.conf file.
 # Prints progress messages.
-def create_ex_config(configPath):
+def create_ex_config():
+    # Set config path.
+    configPath = args.config if args.config else DEFAULT_CONFIG_PATH
+
     # Make sure file does not exist.
     if os.path.exists(configPath):
         printMsg(configPath + " exists and will not be replaced by an example file", 1)
@@ -232,12 +270,43 @@ def create_ex_config(configPath):
         # Create the example file.
         printMsg("Creating example config file")
         try:
-            file = open(configPath, "w")
-            file.write(EX_CONFIG)
-            file.close()
-        except IOError as e:
-            printMsg("I/O error({0}): {1}".format(e.errno, e.strerror), 1)
+            config = ConfigParser.RawConfigParser()
+
+            for section in CONFIG:
+                config.add_section(section[0])            
+                for entry in section[1]:
+                    config.set(section[0], entry[0], entry[1])
             
+            # Writing configuration file to "configPath".
+            with open(configPath, 'wb') as configfile:
+                config.write(configfile)
+
+        except IOError as e: #TODO Maybe not needed?
+            printMsg("I/O error({0}): {1}".format(e.errno, e.strerror), 1)
+
+# Update the config variables.
+# Errors will be rised by ConfException
+# Prints progress messages.
+def get_config():
+    # Set config path.
+    configPath = args.config if args.config else DEFAULT_CONFIG_PATH
+
+    # Switch branch to master before trying to read config.
+    switch_branch(MASTER_BRANCH)
+
+    # Parse config file.
+    printMsg("Reading config file")
+    config = ConfigParser.RawConfigParser(allow_no_value=True)
+    config.readfp(io.BytesIO(configPath))    
+
+    # Make sure the required values are set. #TODO
+    conf = {}
+    for section in CONFIG:
+        for entry in section[1]:
+            # Check if required.
+            if entry[2]:
+                conf = config.get(section[0], entry[0])
+
 # Asks a yes/no question via raw_input() and return their answer.
 # "question" the string presented, "default" is the presumed answer 
 # if the user just hits <Enter>. It must be "yes" (the default), 
@@ -264,33 +333,7 @@ def prompt_user_yn(question, default="yes"):
             return valid[choice]
         else:
             sys.stdout.write("Please respond with 'yes' or 'no' "
-                             "(or 'y' or 'n').\n")
-
-# Update the config variables.
-# Errors will be rised by ConfException
-# Prints progress messages.
-def update_config_vars(configPath):
-    # Switch branch to master before trying to read config.
-    switch_branch(MASTER_BRANCH)
-
-    # Parse config file.
-    printMsg("Reading config file")
-    config = yaml.safe_load(open(configPath))
-    
-    # Make sure the required values are set. #TODO
-    
-
-# Updates standard global build variables (package name and config values).
-# After a successful run it will have (besides setting the variables):
-def update_build_vars(): #TODO
-    # Update from config.    
-    update_config_vars(configPath)
-
-    printMsg("Setting build variables")
-    # Get package name from repository name (parent dir name).
-    global packageName
-    packageName = execCmd(["basename", "`pwd`"]) #TODO varList + cmd ok?
-
+                             "(or 'y' or 'n').\n")    
 
 ######################### Command Execution #############################
 #########################################################################
@@ -304,13 +347,13 @@ if args.version:
     quit()
 
 # Create example config.
-if args.create_config: #TODO
+if args.create_config:
     create_ex_config(args.config if args.config else DEFAULT_CONFIG_PATH)
     # Always exit after config creation.
     quit()
 
 # Undo commit release.
-if args.undo_release: #TODO
+if args.undo_release:
     # Ask user for confirmation.
     prompt_user_yn("Do you really want to undo the latest release commit?") or quit()
 
@@ -328,6 +371,7 @@ if args.undo_release: #TODO
         except CommandError as e:
             printMsg("The debian branch <" + debianBranch + "> could not be reset" + \
                         "to before the last upstream merge.", 1)
+            quit()
     
         # Reset upstream to the previous commit to its HEAD.
         upstreamTag = get_tag(upstreamBranch, upstreamTagType)
@@ -337,6 +381,7 @@ if args.undo_release: #TODO
         except CommandError as e:
             printMsg("The upstream branch <" + upstreamBranch + "> could not be reset" + \
                         "to before the last upstream commit.", 1)
+            quit()
         
         # Remove the latest upstream tag.        
         try:
@@ -344,9 +389,12 @@ if args.undo_release: #TODO
         except CommandError as e:
             printMsg("The latest tag (" + upstreamTag + ") on upstream branch <" + \
                         upstremBranch + "> cound not be deleted", 1)
+            quit()
+
     except GitError as e:
         # Print the error. #TODO
         printMsg(e.msg, 1)
+        quit()        
     
     # Always exit after creation.
     quit()
@@ -357,7 +405,13 @@ if args.upload_build: #TODO
     prompt_user_yn("Upload the latest build?") or quit()
 
     # Update the build variables.
-    update_build_vars()
+    update_config_vars()
+
+    try:
+        packageName = execCmd(["basename", "`pwd`"]) #TODO varList + cmd ok?
+    except CommandError as e:
+        printMsg("The package name could not be determined", 1)
+        quit()
     
     # Check if ppa name is set in config.
     if not ppaName:
