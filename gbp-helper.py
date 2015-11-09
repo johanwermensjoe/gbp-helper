@@ -15,7 +15,7 @@ BUILD_DIR = "../build-area"
 MASTER_BRANCH = "master"
 
 CONFIG = \
-[   ('git', [ \
+[   ('Git', [ \
         ('releaseBranch', "master", True), \
         ('releaseTagType', "release", True), \
         ('upstreamBranch', "upstream", True), \
@@ -24,10 +24,10 @@ CONFIG = \
         ('debianTagType', "debian", True), \
         ('packageName', "", False), \
     ]), \
-    ('signing', [ \
+    ('Signing', [ \
         ('gpgKeyId', "", False) \
     ]), \
-    ('upload', [ \
+    ('Upload', [ \
         ('ppa', "", False) \
     ]), \
 ]
