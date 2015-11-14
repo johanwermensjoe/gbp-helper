@@ -21,7 +21,8 @@
 gbp-helper \- is a helper script to build debian packages with git
 .SH SYNOPSIS
 .B gbp-helper
-.RI [ options ] 
+.RI [ options ]
+[<\fBcommand\fR>]
 [\fB\-\-config\fR \fICONFIG_FILE\fR]
 [\fIGIT_PATH\fR]
 .SH DESCRIPTION
@@ -42,31 +43,45 @@ options starting with two dashes (`-').
 A summary of options is included below.
 For a complete description, see the Info files.
 .TP
-.B \-n ", " \-\-bits =\fIBITS\fR
 .B \-h ", " \-\-help
-Shows the help menu (manpage).
+Shows the help menu.
 .TP
 .B \-V ", " \-\-version
 Shows the current version number.
 .TP
-.B \-r ", " \-\-commit-release
-Commit the current release to the upstream branch and tag.
-Merge the created upstream with the debian branch.
+.B \-v ", " \-\-verbose \| \-q ", " \-\-quiet
+Enables verbose or quiet mode.
 .TP
-.B \-t ", " \-\-test-build
-Build the latest debian package but do not tag.
+.B \-c ", " \-\-color
+Enables colored output.
 .TP
-.B \-b ", " \-\-commit-build
-Build the latest debian package and tag.
+.B \-s ", " \-\-safemode
+Prevents any file changes.
 .TP
 B \-\-config =\fICONFIG_FILE\fR
-Set a path to the config file.
+Sets path to the config file (defaults to ./gbp\-helper).
+
+.SH COMMANDS
 .TP
-.B \-\-create-config
-Create an example config file.
+.B commit\-release
+Commits the current release to the upstream branch and tag.
+Merges the created upstream with the debian branch.
 .TP
-.B \-z ", " \-\-undo-release
-Undo the latest commit release operation.
+.B undo\-release
+Undos the latest commit release operation.
 .TP
-.B \-u ", " \-\-upload-build
-Uploads the last build to a configured PPA.
+.B test\-release
+Prepares a release and builds the package
+but leaves repository unchanged.
+.TP
+.B upload
+Uploads the last build to the configured PPA.
+.TP
+.B build\-pkg
+Builds the latest debian package but do not tag.
+.TP
+.B commit\-pkg
+Builds the latest debian package and tags it.
+.TP
+.B create\-config
+Creates an example config file.
