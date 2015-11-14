@@ -17,6 +17,9 @@ __version__ = "0.2"
 
 DEFAULT_CONFIG_PATH = "./gbp-helper.conf"
 BUILD_DIR = "../build-area"
+CHANGES_FILE_EXT = ".changes"
+ORIG_TAR_FILE_EXT = ".orig.tar.gz"
+TMP_DIR = "/tmp"
 MASTER_BRANCH = "master"
 
 CONFIG = \
@@ -26,15 +29,20 @@ CONFIG = \
         ('upstreamBranch', "upstream", True), \
         ('upstreamTagType', "upstream", True), \
         ('debianBranch', "debian", True), \
-        ('debianTagType', "debian", True), \
-        ('packageName', "", False), \
+        ('debianTagType', "debian", True) \
     ]), \
     ('SIGNING', [ \
-        ('gpgKeyId', "", False) \
+        ('gpgKeyId', None, False) \
     ]), \
     ('UPLOAD', [ \
-        ('ppa', "", False) \
+        ('ppa', None, False) \
     ]), \
+    ('PACKAGE', [ \
+        ('packageName', None, False), \
+        ('distribution', None, False), \
+        ('urgency', "low", False), \
+        ('debianVersionSuffix', "-0~ppa1", False) \
+    ]) \
 ]
 
 ######################### Errors / Exceptions ###########################
@@ -48,13 +56,15 @@ class CommandError(Error):
     """Error raised when executing a shell command.
 
     Attributes:
-        expr -- input command for which the error occurred
-        msg  -- explanation of the error
+        expr    -- input command for which the error occurred
+        stdout  -- command output
+        stderr  -- command error output
     """
 
-    def __init__(self, expr, msg):
+    def __init__(self, expr, stdout, stderr):
         self.expr = expr
-        self.msg = msg
+        self.stdout = stdout
+        self.stderr = stderr
 
 class GitError(Error):
     """Error raised for git operations.
@@ -67,7 +77,7 @@ class GitError(Error):
     def __init__(self, msg, opr=None):
         self.opr = opr
         self.msg = msg
-        
+
 class ConfigError(Error):
     """Error raised for config file operations.
 
@@ -100,12 +110,12 @@ parser.add_argument('-c', '--color', action='store_true', \
     help='enables colored text')
 parser.add_argument('-s', '--safemode', action='store_true', \
     help='prevents any file changes')
-parser.add_argument('--config', \
+parser.add_argument('--config', default=DEFAULT_CONFIG_PATH, \
     help='path to the gbp-helper.conf file')
 
 # The possible sub commands.
 parser.add_argument('action', nargs='?', \
-    choices=['prepare-release', 'undo-release', 'test-release', \
+    choices=['prepare-release', 'test-release', 'update-changelog', \
             'build-pkg', 'commit-pkg', 'upload', 'create-config'], \
     help="the main action to execute")
 
@@ -148,6 +158,7 @@ class TextType:
     SUCCESS = ([TextFormat.GREEN], 1)
     WARNING = ([TextFormat.WARNING], 1)
     ERR = ([TextFormat.FAIL], 2)
+    ERR_EXTRA = ([], 2)
     INIT = ([TextFormat.BOLD], 1)
     STD = ([], 0)
 
@@ -166,14 +177,15 @@ def log_err(error):
     log("\nError:", TextType.ERR)
     if isinstance(error, GitError):
         if error.opr:
-            log(("The git command " + error.opr + "failed\n" \
+            log(("The git command \'" + error.opr + "\' failed\n" \
                         if error.opr else "") + error.msg, TextType.ERR)
         else:
             log(error.msg, TextType.ERR)
     
     elif isinstance(error, CommandError):
-        log("An error occured running: " + error.expr + \
-                    "\n Output: " + error.msg, TextType.ERR)
+        log("An error occured running: " + error.expr, TextType.ERR)
+        log("\nStdOut:\n" + error.stdout, TextType.ERR_EXTRA)
+        log("\nStdErr:\n" + error.stderr, TextType.ERR_EXTRA)
 
     elif isinstance(error, ConfigError):
         log(("An error with file: " + error.file + "\n" if error.file else "") + \
@@ -191,7 +203,7 @@ def print_format(msg, formats):
 
 # Prints a success message with appropriate color.
 def log_success():
-    log("Success", TextType.SUCCESS)
+    log("Success\n", TextType.SUCCESS)
 
 ## Shell commands
 
@@ -200,13 +212,18 @@ def log_success():
 # Returns the command output.
 def execCmd(cmd):
     PIPE = subprocess.PIPE
-    process = subprocess.Popen(cmd, stdout=PIPE, stderr=PIPE)
-    stdoutput, stderroutput = process.communicate()
-
-    if 'fatal' in stdoutput or process.returncode == 1:
+    s = " "
+    
+    try:
+        process = subprocess.Popen(cmd, stdout=PIPE, stderr=PIPE)
+        stdoutput, stderroutput = process.communicate()
+    except Exception as e:
+        raise CommandError(s.join(cmd), e.msg)
+    
+    if ('fatal' in stdoutput) or ('fatal' in stderroutput) or \
+            process.returncode >= 1:
         # Handle error case
-        s = " "
-        raise CommandError(s.join(cmd), stderroutput)
+        raise CommandError(s.join(cmd), stdoutput, stderroutput)
     else:
         # Success!
         return stdoutput
@@ -219,8 +236,7 @@ def check_git_rep():
     try:
         execCmd(["git", "status"])
     except CommandError:
-        raise GitError(pwd + (" or " + args.dir) if args.dir else "" \
-                            " is not a git repository", "status")
+        raise GitError(pwd + " is not a git repository", "status")
 
 # Switches to git branch.
 # Errors will be raised as GitError (if checkout isn't possible).
@@ -235,23 +251,19 @@ def switch_branch(branchName):
                             branchName + "\' exists and all changes " + \
                             "are commited", "checkout")
 
-# Retrives the tags for the latest commit (HEAD):
-# Errors will be raised as GitError (underlying errors or if no tags exists).
-# Returns the list of HEAD tags for the given branch.
+# Retrives the tags for the latest commit (HEAD).
+# Errors will be raised as GitError (underlying errors).
+# Returns the list of HEAD tags for the given branch (can be empty).
 def get_head_tags(branchName):
     switch_branch(branchName)
     try: 
-        headTags = execCmd(["git", "tag", "--points-at", "HEAD"])
-
-        # Check that some tags exists.    
-        if not headTags:
-            raise GitError("The HEAD on branch \'" + branchName + "\' has no tags")
+        headTags = execCmd(["git", "tag", "--points-at", "HEAD"]).rstrip()
         return headTags
     except CommandError as e:
         raise GitError("The tags pointing at \'" + branchName + \
                         "\' HEAD, could not be retrived", "tag")
 
-# Retrives the latest HEAD tag (for tags: <tag_type>/<version>) for a branch.
+# Retrives the latest HEAD tag (<tag_type>/<version>) for a branch.
 # Errors will be raised as GitError (underlying errors or if no tags exists). 
 def get_head_tag(branchName, tagType):
     # Get the latest HEAD tags.
@@ -270,36 +282,80 @@ def get_head_tag(branchName, tagType):
         raise GitError("The HEAD on branch \'" + branchName + \
                             "\' has no tags of type: " + tagType + "/<version>")
 
-# Retrives the HEAD tag version (for tags: <tag_type>/<version>) for a branch:
-# Errors will be raised as GitError (underlying errors or if no correct tags exists). 
-def get_tag_version(branchName, tagType):
-    # Get the latest HEAD tag.
-    headTag = get_head_tag(branchName, tagType)
-    
-    # Get the version part of the tag.
-    tagVersion = re.match(r"^" + tagType + r"/(.*$)", headTag)
+# Retrives the latest tag (<tag_type>/<version>) for a branch.
+# Errors will be raised as GitError (underlying errors or if no tags exists). 
+def get_latest_tag(branchName, tagType):
+    # Get the latest tag.
+    switch_branch(branchName)
+    try:
+        return execCmd(["git", "describe", "--abbrev=0", "--tags", \
+                                "--match", tagType + "/*"]).rstrip()
+    except CommandError:
+        raise GitError("The branch \'" + branchName + \
+                            "\' has no tags of type: " + tagType + "/<version>")
 
+# Extracts the version string from a tag (<tag_type>/<version>).
+# Errors will be raised as GitError
+def get_version_from_tag(tag, tagType):
+    # Get the version part of the tag.
+    tagVersion = re.match(r"^" + tagType + r"/(.*$)", tag)
     if tagVersion:
         return tagVersion.group(1)
     else:
-        raise GitError("A tag version could not be extracted")
+        raise GitError("A tag version could not be extracted from tag " + \
+                            "\'" + tag + "\'")
+
+# Retrives the HEAD tag version (<tag_type>/<version>) for a branch.
+# Errors will be raised as GitError (underlying errors or if no correct tags exists). 
+def get_head_tag_version(branchName, tagType):
+    # Get the latest HEAD tag.
+    headTag = get_head_tag(branchName, tagType)
+    return get_version_from_tag(headTag, tagType)
+    
+# Retrives latest tag version (<tag_type>/<version>) for a branch.
+# Errors will be raised as GitError (underlying errors or if no correct tags exists). 
+def get_latest_tag_version(branchName, tagType):
+    # Get the latest tag.
+    latestTag = get_latest_tag(branchName, tagType)
+    return get_version_from_tag(latestTag, tagType)
+
+# Checks whether the first version string is greater than second.
+def is_version_lt(v1, v2):
+    return v1 != v2 and is_version_lte(v1, v2)
+    
+# Checks whether the first version string is less than or equal to the second.
+def is_version_lte(v1, v2):
+    versions = [v1, v2]
+    versions.sort(key=lambda s: map(int, s.split('~')[0].split('.')))
+    return versions[0] == v1
 
 # Produces the next logical version from the given version string.
 # Errors will be raised as GitError.
 def get_next_version(version):
     try:
         verPart = version.split('.')
-        verPart[-1] = verPart[-1] + 1
+        verPart[-1] = str(int(verPart[-1]) + 1)
         return '.'.join(verPart)
     except Error:
         raise GitError("Version \'" + version + "\' could not be incremented")
+
+# Check if working directory is clean.
+# Returns True if clean, False otherwise.
+def is_working_dir_clean():
+    check_git_rep()
+    try:
+        execCmd(["git", "status", "--porcelain"])
+        return True
+    except CommandError:
+        raise GitError("Could not determine if working directory is clean.", "status")
+    return False
 
 # Retrives the name of the current branch.
 # Errors will be raised as GitError.
 def get_branch():
     check_git_rep()
     try:
-        return execCmd(["git", "rev-parse", "--abrev-ref", "HEAD"])
+        return execCmd(["git", "rev-parse", "--abrev-ref", "HEAD"]).rstrip()
     except CommandError:
         raise GitError("Could not find the name of the current branch", "rev-parse")
 
@@ -308,7 +364,7 @@ def get_branch():
 def get_head_commit(branch):
     switch_branch(branch)
     try:
-        return execCmd(["git", "rev-parse", "HEAD"])
+        return execCmd(["git", "rev-parse", "HEAD"]).rstrip()
     except CommandError:
         raise GitError("Could not find the name of the current branch", "rev-parse")
 
@@ -317,22 +373,50 @@ def get_head_commit(branch):
 # Resets the given branch to the given commit, (accepts HEAD as commit).
 # Errors will be raised as GitError.
 def reset_branch(branch, commit):
-    switch_branch(debianBranch)
+    switch_branch(branch)
     try:
-        execCmd(["git", "reset", "--hard", debianCommit])
+        execCmd(["git", "reset", "--hard", commit])
     except CommandError:
         raise GitError("Could not reset branch \'" + branch + "\' " + \
                         "to commit \'" + commit + "\'")
 
 # Commits all changes for the current branch.
 # Errors will be raised as GitError.
-def commit_changes():
+def commit_changes(msg):
     check_git_rep()
     try:    
         execCmd(["git", "add", "-A"])
-        execCmd(["git", "commit", "-m", "Temp commit."])
+        execCmd(["git", "commit", "-m", msg])
     except CommandError:
         raise GitError("Could not commit changes to current branch")
+
+# Stashes the changes in the working directory with a optional stash name.
+def stash_changes(name=None):
+    check_git_rep()
+    try:
+        if name:
+            execCmd(["git", "stash", "save", name])
+        else:
+            execCmd(["git", "stash"])
+    except CommandError:
+        raise GitError("Could not stash uncommitted changes", "stash")
+
+# Applies stashed changes on the given branch with a optional stash name.
+def apply_stash(branch, name=None, drop=True):
+    switch_branch(branch)
+    try:
+        if name:
+            execCmd(["git", "stash", "apply", "stash/" + name])
+            if drop:
+                execCmd(["git", "stash", "drop", "stash/" + name])
+        else:
+            execCmd(["git", "stash", "apply"])
+            if drop:
+                execCmd(["git", "stash", "drop"])
+
+    except CommandError:
+        raise GitError("Could not apply stashed changes" + \
+                        (" (stash/" + name + ")" if name else ""), "stash")
 
 # Deletes the given tag.
 # Errors will be raised as GitError.
@@ -350,15 +434,14 @@ def tag_head(branch, tag):
     try:
         execCmd(["git", "tag", tag])
     except CommandError:
-        raise GitError("The tag \'" + tag + "\' could not be created", "tag")
+        raise GitError("The tag \'" + tag + "\' could not be created " + \
+                        "and may already exist", "tag")
 
 ## Config read & write
 
 # Creates an example gbp-helper.conf file.
 # Errors will be raised as ConfigError.
-def create_ex_config():
-    # Set config path.
-    configPath = args.config if args.config else DEFAULT_CONFIG_PATH
+def create_ex_config(configPath):
 
     # Make sure file does not exist.
     if os.path.exists(configPath):
@@ -384,10 +467,8 @@ def create_ex_config():
 
 # Update the config variables.
 # Errors will be raised as ConfigError.
-def get_config():
-    # Set config path.
-    configPath = args.config if args.config else DEFAULT_CONFIG_PATH
-    
+def get_config(configPath):
+
     # Check if config file exists.
     if not os.path.exists(configPath):
         raise ConfigError("The config file could not be found", configPath)
@@ -406,18 +487,18 @@ def get_config():
             # Set conf value even if it's empty.
             val = config.get(section[0], entry[0])
             # Check if required but non existant.
-            if entry[2] and not val:    
-                raise ConfigError("The value in for " + entry[0] + " in section [" + \
-                                    section[0] + "] is missing but required", configPath)
+            if not val:
+                # Use default value instead (can be None).
+                val = entry[1]
+                # Check if required in config.
+                if entry[2]:
+                    raise ConfigError("The value in for " + entry[0] + " in section [" + \
+                                        section[0] + "] is missing but required", configPath)
             conf[entry[0]] = val
 
     # Handle special fields.
     if not conf['packageName']:
-        try:
-            packageName = execCmd(["basename", "`pwd`"])
-            conf['packageName'] = packageName
-        except CommandError as e:
-            raise ConfigError("The package name could not be determined", configPath)
+        conf['packageName'] = os.path.basename(os.getcwd())
     
     return conf
 
@@ -428,18 +509,19 @@ def get_config():
 ### If a failure occurs functions print an error message and terminate.
 #########################################################################
 
-# Checks whether the first version string is greater than or equal to the second: 
-def is_version_lte(v1, v2):
-    versions = [v1, v2]
-    matchingTags.sort(key=lambda s: map(int, s.split('~')[0].split('.')))
-    return matchingTags[0] == v1
-
 # Cleans or if not existant creates a directory.
 # Prints progress messages.
 def clean_dir(dirPath):
     remove_dir(dirPath)
     if not args.safemode:
         os.makedirs(dirPath)
+        
+# Retrives the first file matching the given extension or None.
+def get_file_with_extension(dirPath, extension):
+    for file in os.listdir(dirPath):
+        if file.endswith(extension):
+            return file
+    return None
 
 # Removes a directory.
 def remove_dir(dirPath):
@@ -455,7 +537,7 @@ def prepare_build(conf):
     log("Switching to debian branch: <" + conf['debianBranch'] + ">")
     switch_branch(conf['debianBranch'])
 
-    log("Cleaning old build")
+    log("Cleaning old build files in \'" + BUILD_DIR + "\'")
     clean_dir(BUILD_DIR)
 
 # Asks a yes/no question via raw_input() and return their answer.
@@ -490,10 +572,10 @@ def prompt_user_yn(question, default="yes"):
 #########################################################################
 
 # Creates example config.
-def create_config(conf):
-    log("Creating example config file", TextType.INIT)
+def create_config(conf, configPath):
+    log("Creating example config file: " + configPath)
     try:
-        create_ex_config()
+        create_ex_config(configPath)
     except ConfigError as e:
         log_err(e)
         quit()
@@ -504,74 +586,69 @@ def create_config(conf):
 # Prepares release, committing the latest to 
 # upstream and merging with debian. Also tags the upstrem commit.
 # Returns the tag name on success.
-def prepare_release(conf):
+def prepare_release(conf, sign):
 
     # Constants
-    log("Setting sourcedir")
-    tmpPath="/tmp/" + conf['packageName']
+    log("Setting build paths")
+    tmpPath = os.path.join(TMP_DIR, conf['packageName'])
+    archivePath = os.path.join(tmpPath, conf['releaseBranch'] + "_archive.tar")
     
     # Get the tagged version from the release branch.
     try:
-        releaseVersion = get_tag_version(conf['releaseBranch'], \
+        releaseVersion = get_head_tag_version(conf['releaseBranch'], \
                                             conf['releaseTagType'])
-        upstreamVersion = get_tag_version(conf['upstreamBranch'], \
+        upstreamVersion = get_head_tag_version(conf['upstreamBranch'], \
                                             conf['upstreamTagType'])
         sourceDirName = conf['packageName'] + "-" + releaseVersion
         sourceDirPath = os.path.join(tmpPath, sourceDirName)
         tarPath = os.path.join(tmpPath, conf['packageName'] + "_" + \
-                    releaseVersion + ".orig.tar.gz")
+                    releaseVersion + ORIG_TAR_FILE_EXT)
 
         # Check that the release version is greater than the upstream version.
-        if not is_version_lte(releaseVersion, upstreamVersion):
-            raise GitError("Release version is less than" + \
+        if not is_version_lt(upstreamVersion, releaseVersion):
+            raise GitError("Release version is less than " + \
                             "upstream version, aborting")
-    except GitError as e:
-        log_err(e)
-        quit()
 
-    # Clean build directory.
-    log("Cleaning build directory")
-    clean_dir(tmpPath)
-    if not args.safemode:
-        os.makedirs(sourceDirPath)
-
-    # Extract the latest commit to release branch.
-    log("Extracting latest commit from release branch: <$releaseBranch>")
-    try:
+        # Clean build directory.
+        log("Cleaning build directory")
+        clean_dir(tmpPath)
         if not args.safemode:
-            execCmd(["git", "archive", conf['releaseBranch'], "|", "tar", "-x", "-C", \
-                    sourceDirPath, "--exclude=gbp-helper.conf", "--exclude=README.md", \
-                    "--exclude=LICENSE", "--exclude-vcs"])
-    except CommandError as e:
-        log_err(e)
-        quit()        
+            os.makedirs(sourceDirPath)
 
-    # Create the upstream tarball.
-    log("Making upstream tarball from release branch: <$releaseBranch>")
-    try:
+        # Extract the latest commit to release branch.
+        log("Extracting latest commit from release branch \'" + \
+                conf['releaseBranch'] + "\'")
         if not args.safemode:
-            execCmd(["tar", "-C", tmpPath, "-czf", tarPath, sourceDirName])
-    except CommandError as e:
-        log_err(e)
-        quit()        
+            execCmd(["git", "archive", conf['releaseBranch'], "-o", archivePath])
+            execCmd(["tar", "-xf", archivePath, "--directory=" + sourceDirPath, \
+                        "--exclude=gbp-helper.conf", "--exclude=README.md", \
+                        "--exclude=LICENSE", "--exclude-vcs"])
 
-    # Commit tarball to upstream branch and tag.
-    log("Importing tarball to upstream branch: <$upstreamBranch>")
+        # Create the upstream tarball.
+        log("Making upstream tarball from release branch: \'" + \
+                conf['releaseBranch'] + "\'")
+        if not args.safemode:
+            execCmd(["tar", "--directory=" + tmpPath, "-czf", tarPath, sourceDirName])
 
-    # Check if gpg key is set.
-    if not gpgKeyId:
-        log("Your gpg key id is not set in your gbp-helper.conf," + \
-                     " disabling tag signing.", TextType.WARNING)
-        tagCmd = "--no-sign-tags"
-    else:
-        tagCmd = "--sign-tags --keyid=" + conf['gpgKeyId']
+        # Commit tarball to upstream branch and tag.
+        log("Importing tarball to upstream branch: \'" + \
+                conf['upstreamBranch'] + "\'")
+
+        # Check if sould sign and gpg key is set.
+        if sign and conf['gpgKeyId']:
+            tagCmd = ["--sign-tags", "--keyid=" + str(conf['gpgKeyId'])]
+        else:
+            tagCmd = []
+            if sign:
+                log("Your gpg key id is not set in your gbp-helper.conf," + \
+                         " disabling tag signing.", TextType.WARNING)
       
-    try:
         if not args.safemode:
-            execCmd(["gbp", "import-orig", "--merge", "--no-interactive", \
-                    tagCmd, "--debian-branch=" + conf['debianBranch'], \
-                    "--upstream-branch=" + conf['upstreamBranch'], tarPath])
-    except CommandError as e:
+            execCmd(["gbp", "import-orig", "--no-interactive", "--merge"] + \
+                        tagCmd + ["--debian-branch=" + conf['debianBranch'], \
+                        "--upstream-branch=" + conf['upstreamBranch'], tarPath])
+    
+    except Error as e:
         log_err(e)
         quit()        
 
@@ -584,99 +661,116 @@ def prepare_release(conf):
     log_success()
         
     # Return the name of the upstream tag.
-    return upstreamTagType + "/" + releaseVersion
+    return conf['upstreamTagType'] + "/" + releaseVersion
 
-# Tries to undo a previously prepared release
-# and possible further commits to the debian branch.
-def undo_release(conf): #TODO
-    # Ask user for confirmation.
-    prompt_user_yn("Do you really want to undo the latest release commit?") or quit()
-
-    try:
-        # Find out what the latest merge commit between upstream and debian branches.
-        # TODO
-
-        # Reset debian to the previous commit to the merge.
-        switch_branch(conf['debianBranch'])
-        try:
-            if not args.safemode:
-                execCmd(["git", "reset", "--hard", "HEAD~1"])
-        except CommandError as e:
-            log_err(GitError("The debian branch <" + \
-                                conf['debianBranch'] + "> could not be reset" + \
-                                "to before the last upstream merge", "reset"))
-            quit()
-    
-        # Reset upstream to the previous commit to its HEAD.
-        upstreamTag = get_tag(upstreamBranch, upstreamTagType)
-        switch_branch(upstreamBranch)
-        try:
-            if not args.safemode:
-                execCmd(["git", "reset", "--hard", "HEAD~1"])
-        except CommandError as e:
-            log_err(GitError("The upstream branch <" + \
-                                upstreamBranch + "> could not be reset" + \
-                                "to before the last upstream commit", "reset"))
-            quit()
-        
-        # Remove the latest upstream tag.        
-        try:
-            if not args.safemode:
-                execCmd(["git", "tag", "-d", upstreamTag])
-        except CommandError as e:
-            log_err(GitError("The latest tag (" + upstreamTag + \
-                                ") on upstream branch <" + upstremBranch + \
-                                "> cound not be deleted", "tag"))
-            quit()
-
-    except GitError as e:
-        log_err(e)
-        quit()
-
-    # Print success message.    
-    log_success()
-        
 # Prepares a release and builds the package
 # but reverts all changes after, leaving the repository unchanged.
 def test_release(conf):
     
-    # Store debian and upstream commits to later revert to them.
+    # Try to get the tag of the master HEAD.
     try:
-        debianCommit = get_head_commit(conf['debianBranch'])
-        upstreamCommit = get_head_commit(conf['upstreamBranch'])
         releaseCommit = get_head_commit(conf['releaseBranch'])
     except GitError as e:
         log_err(e)
         quit()
     
-    # Commit any changes on master and tag.
+    if not is_working_dir_clean():
+        # Only stash if uncommitted changes are on release branch.
+        currentBranch = get_branch()
+        if currentBranch == conf['releaseBranch']:
+            log("Stashing uncommited changes on release branch \'" + \
+                    conf['releaseBranch'] + "\'")
+            resetRelease = True
+            try:
+                # Save changes to tmp stash.
+                if not args.safemode:
+                    stashName = "gbp-helper<" + releaseCommit + ">"
+                    stash_changes(stashName)
+                
+                # Apply stash and create a tmp commit.
+                log("Creating temporary release commit")
+                if not args.safemode:
+                    apply_stash(stashName, False)
+                    commit_changes("Temp release commit.")
+            except GitError as e:
+                log_err(e)
+        else:
+            # Uncommitted changes on another branch, quit
+            log("Uncommitted changes on branch \'" + currentBranch + \
+                    "\', commit before proceding.", TextType.ERR)
+            quit()
+    else:
+        log("Working directory clean, no commit needed")
+        resetRelease = False
+        
+    # Tag the last commit properly.
+    # Only tag if no tags exists at HEAD.
+    if not get_head_tags(conf['releaseBranch']):
+        removeReleaseTag = True
+        try:
+            releaseVersion = get_latest_tag_version(conf['releaseBranch'], \
+                                                conf['releaseTagType'])
+            tmpVersion = get_next_version(releaseVersion)
+            tmpReleaseTag = conf['releaseTagType'] + "/" + tmpVersion
+            log("Tagging release HEAD as \'" + tmpReleaseTag + "\'")
+            if not args.safemode:
+                tag_head(conf['releaseBranch'], tmpReleaseTag)
+        except GitError as e:
+            log_err(e)
+            quit()
+    else:
+        log("Release HEAD already tagged, skipping tagging")
+        removeReleaseTag = False
+    
     try:
-        releaseVersion = get_tag_version(conf['releaseBranch'], \
-                                            conf['releaseTagType'])
-        tmpReleaseTag = conf['releaseTagType'] + "/" + \
-                                get_next_version(releaseVersion)
-        commit_changes(conf['releaseBranch'])
-        tag_head(masterBranch, nextReleaseTag)
+        # Store debian and upstream commits to later revert to them.
+        debianCommit = get_head_commit(conf['debianBranch'])
+        upstreamCommit = get_head_commit(conf['upstreamBranch'])
     except GitError as e:
         log_err(e)
         quit()
     
     # Prepare release, no tags.
-    upstreamTag = prepare_release()
+    upstreamTag = prepare_release(conf, False)
+    
+    # Update the changlog to match upstream version.
+    tmpDebianVersion = tmpVersion + conf['debianVersionSuffix']
+    update_changelog(conf, version=tmpDebianVersion, commit=True)
     
     # Test package build.
-    build_pkg(False)
+    build_pkg(conf)
 
     # Revert changes.    
     try:
+        log("Reverting changes")
         # Delete upstream tag.
-        delete_tag(upstreamTag)
-        delete_tag(tmpReleaseTag)
+        if not args.safemode:
+            delete_tag(upstreamTag)
+        
+        # Remove temporary release tag if created.
+        if removeReleaseTag:
+            log("Removing temporary release tag \'" + tmpReleaseTag + "\'")
+            if not args.safemode:
+                delete_tag(tmpReleaseTag)
+        
+        # Reset master if needed.
+        if resetRelease:
+            log("Resetting release branch \'" + conf['releaseBranch'] + "\'"+ \
+                    "to commit \'" + releaseCommit + "\'")
+            log("Restoring uncommitted changes from stash to release branch \'" + \
+                    conf['releaseBranch'] + "\'")
+            if not args.safemode:
+                reset_branch(conf['releaseBranch'], releaseCommit)
+                apply_stash(conf['releaseBranch'], stashName, True)
         
         # Reset debian and upstream branches.
-        reset_branch(conf['debianBranch'], debianCommit)
-        reset_branch(conf['upstreamBranch'], upstreamCommit)
-        reset_branch(conf['releaseBranch'], releaseCommit)
+        log("Resetting debian branch \'" + conf['debianBranch'] + "\'" + \
+                "to commit \'" + debianCommit + "\'")
+        log("Resetting upstream branch \'" + conf['upstreamBranch'] + "\'" + \
+                "to commit \'" + upstreamCommit + "\'")
+        if not args.safemode:
+            reset_branch(conf['debianBranch'], debianCommit)
+            reset_branch(conf['upstreamBranch'], upstreamCommit)
     except GitError as e:
         log_err(e)
         quit()
@@ -697,7 +791,8 @@ def upload_pkg(conf):
 
     # Make sure that the latest debian commit is tagged.
     try:
-        debianTagVersion = get_tag_version(conf['debianBranch'], conf['debianTagType'])
+        debianTagVersion = get_head_tag_version(conf['debianBranch'], \
+                                                conf['debianTagType'])
     except GitError as e:
         log_err(e)
         log("The latest debian commit isn't porperly tagged, run gbp-helper -b", \
@@ -705,22 +800,29 @@ def upload_pkg(conf):
         quit()
 
     # Set the name of the .changes file and upload.
-    try:
-        if not args.safemode:
-            execCmd(["dput", "ppa:" + conf['ppaName'], "../build-area/" + \
-                        conf['packageName'] + "_" + conf['debianTagVersion'] + \
-                        "_source.changes"])
-    except CommandError as e:
-        log_err(e)
-        log("The package could not be uploaded to ppa:" + conf['ppaName'], \
-                TextType.ERR)
+    changeFile = get_file_with_extension(BUILD_DIR, CHANGES_FILE_EXT)
+    if changesFile:
+        try:
+            if not args.safemode:
+                execCmd(["dput", "ppa:" + conf['ppaName'], \
+                            os.path.join(BUILD_DIR, changesFile)])
+        except CommandError as e:
+            log_err(e)
+            log("The package could not be uploaded to ppa:" + \
+                    conf['ppaName'], TextType.ERR)
+    else:
+        log("Changefile (" + CHANGES_FILE_EXT + ") not found in \'" + \
+                    BUILD_DIR + "'\, aborting upload", TextType.ERR)
+        quit()
     
-    # Print success message.    
+    # Print success message.
     log_success()
 
 # Builds package from the latest debian commit.
 # Tags the debian commit if arg: "tag" is True.
-def build_pkg(tag, conf):
+# Signs the created tag if sign (and tag) is True.
+# Uses a treeish decriptor to create the upstream tarball instead of changelog ref.
+def build_pkg(conf, tag=False, sign=False, upstreamTreeish=None):
     
     # Prepare build.
     prepare_build(conf)
@@ -728,27 +830,73 @@ def build_pkg(tag, conf):
     # Build and without tagging and do linthian checks.
     log("Building debian package")
     
-    # Ceck if tag should be created.
-    tagCmd = "--git-tag " if tag else ""
+    # Check if tag should be created.
+    tagOpt = ["--git-tag"] if tag else []
     
     # Check if gpg key is set.
-    if not gpgKeyId:
-        log("Your gpg key id is not set in your gbp-helper.conf," + \
-                     " disabling tag signing.", TextType.WARNING)
-        tagCmd += "--no-sign-tags"
+    if sign and conf['gpgKeyId']:
+        tagOpt += ["--sign-tags", "--keyid=" + str(conf['gpgKeyId'])]
     else:
-        tagCmd += "--sign-tags --keyid=" + conf['gpgKeyId']
-
+        if sign:
+            log("Your gpg key id is not set in your gbp-helper.conf," + \
+                     " disabling tag signing.", TextType.WARNING)
+    # Check if treeish is set.
+    upstreamOpt = (["--git-upstream-tree=" + upstreamTreeish] \
+                        if upstreamTreeish else [])
+    
     try:
         if not args.safemode:
-            execCmd(["gbp", "buildpackage", tagCmd, \
-                    "--git-debian-branch=" + conf['debianBranch'], \
+            execCmd(["gbp", "buildpackage"] + tagOpt + upstreamOpt + \
+                    ["--git-debian-branch=" + conf['debianBranch'], \
                     "--git-upstream-branch=" + conf['upstreamBranch'], \
-                    "--git-export-dir=" + BUILD_DIR, "--git-ignore-new", \
-                    "--git-builder=\"debuild -S\"", "--git-postbuild=\'echo " + \
-                        "\"Running Lintian...\"\' && lintian -I " + \
-                        "$GBP_CHANGES_FILE && echo \"Lintian OK\""])
+                    "--git-export-dir=" + BUILD_DIR, "--git-builder=debuild -S"])
+            changesFile = get_file_with_extension(BUILD_DIR, CHANGES_FILE_EXT)
+            if changesFile:
+                log("Running Lintian...", TextType.INFO)
+                execCmd(["lintian", "-I", os.path.join(BUILD_DIR, changesFile)])
+                log("Lintian OK", TextType.INFO)
+            else:
+                log("Changesfile (" + CHANGES_FILE_EXT + ") not found in \'" + \
+                        BUILD_DIR + "'\, skipping lintian", TextType.WARNING)
     except CommandError as e:
+        log_err(e)
+        quit()
+    
+    # Print success message.    
+    log_success()
+
+# Update the changelog with the git commit messsages since last build.
+def update_changelog(conf, version=None, editor=False, commit=False, release=False):
+
+    # Build and without tagging and do linthian checks.
+    log("Updating changelog to new version")
+    if not version:
+        log("Version not set, using standard format")
+        try:
+            upstreamVersion = get_head_tag_version(config['upstreamBranch'], \
+                                                    config['upstreamTagType'])
+            version = conf['debianTagType'] + "/" + upstreamVersion + \
+                            conf['debianVersionSuffix']
+            log("Using version \'" + version + "\'")
+        except GitError as e:
+            log_err(e)
+            quit()
+    else:
+        log("Updating changelog with version \'" + version + "\'")
+    
+    commitOpt = (["--commit"] if commit else [])
+    editorOpt = (["--spawn-editor=always"] if editor else [])
+    distributionOpt = (["--distribution=" + conf['distribution']] \
+                            if conf['distribution'] else [])
+    releaseOpt = (["--release"] if release else [])
+    
+    try:
+        switch_branch(conf['debianBranch'])
+        if not args.safemode:
+            execCmd(["gbp", "dch", "--debian-branch=" + conf['debianBranch'], \
+                    "--new-version=" + version, "--urgency=" + conf['urgency']] + \
+                    commitOpt + editorOpt + distributionOpt + releaseOpt)
+    except Error as e:
         log_err(e)
         quit()
     
@@ -777,31 +925,30 @@ os.chdir(args.dir)
 if args.action != 'create-config':
     log("Reading config file")
     try:
-        config = get_config()
-        log_success()
+        config = get_config(args.config)
     except ConfigError as e:
         log_err(e);
         quit()
 
 ## Sub commands ##
-print args.action
-print args.action == 'test-release'
+log("Executing commad: " + args.action, TextType.INIT)
 
 # Create example config.
 if args.action == 'create-config':
-    create_config(config)
+    create_config(config, args.config)
 
 # Prepare release.
 elif args.action == 'prepare-release':
-    prepare_release(config)
-
-# Undo commit release.
-elif args.action == 'undo-release':
-    undo_release(config)
+    prepare_release(config, True)
 
 # Build release without commiting.
 elif args.action == 'test-release':
     test_release(config)
+
+# Updates the changelog with set options, 
+# lets user review in editor and commits the changes.
+elif args.action == 'update-changelog':
+    update_changelog(config, editor=True, commit=True, release=True)
 
 # Upload latest build.
 elif args.action == 'upload':
@@ -809,8 +956,8 @@ elif args.action == 'upload':
 
 # Build test package.
 elif args.action == 'build-pkg':
-    build_pkg(False, config)
+    build_pkg(config)
 
 # Build and commit package.
 elif args.action == 'commit-pkg':
-    buld_pkg(True, config)
+    buld_pkg(config, True, True)
