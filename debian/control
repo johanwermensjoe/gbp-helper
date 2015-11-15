@@ -8,6 +8,7 @@ Standards-Version: 3.9.5
 Package: gbp-helper
 Architecture: all
 Depends: ${misc:Depends},
+         debhelper(>= 9),
          git-buildpackage
 Description: is a helper script to build debian packages with git
  The script uses config files to specify branch names etc

@@ -1,1 +1,1 @@
-gbp-helper.sh usr/lib/gbp-helper
+gbp-helper.py usr/lib/gbp-helper
