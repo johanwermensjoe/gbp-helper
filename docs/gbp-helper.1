@@ -22,8 +22,8 @@ gbp-helper \- is a helper script to build debian packages with git
 .SH SYNOPSIS
 .B gbp-helper
 .RI [ options ]
-[<\fBcommand\fR>]
 [\fB\-\-config\fR \fICONFIG_FILE\fR]
+[<\fBcommand\fR>]
 [\fIGIT_PATH\fR]
 .SH DESCRIPTION
 This manual page documents briefly the
@@ -49,7 +49,7 @@ Shows the help menu.
 .B \-V ", " \-\-version
 Shows the current version number.
 .TP
-.B \-v ", " \-\-verbose \| \-q ", " \-\-quiet
+.B \-v ", " \-\-verbose | \-q ", " \-\-quiet
 Enables verbose or quiet mode.
 .TP
 .B \-c ", " \-\-color
@@ -58,7 +58,7 @@ Enables colored output.
 .B \-s ", " \-\-safemode
 Prevents any file changes.
 .TP
-B \-\-config =\fICONFIG_FILE\fR
+.B \-\-config \fICONFIG_FILE\fR
 Sets path to the config file (defaults to ./gbp\-helper).
 
 .SH COMMANDS
@@ -72,11 +72,10 @@ Prepares a release and builds the package
 but leaves repository unchanged.
 .TP
 .B update\-changelog
-Updates the changelog for a new release and lets user review with editor.
-Commits the changes.
+Updates the changelog for a new release and commits the changes.
 .TP
 .B build\-pkg
-Builds the latest debian package but do not tag.
+Builds the latest debian package but does not tag.
 .TP
 .B commit\-pkg
 Builds the latest debian package and tags it.
