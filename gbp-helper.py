@@ -34,14 +34,17 @@ CONFIG = \
     ('SIGNING', [ \
         ('gpgKeyId', None, False) \
     ]), \
-    ('UPLOAD', [ \
-        ('ppa', None, False) \
+    ('BUILD', [ \
+        ('buildCmd', "debuild -S --no-lintian", False) \
     ]), \
     ('PACKAGE', [ \
         ('packageName', None, False), \
         ('distribution', None, False), \
         ('urgency', "low", False), \
         ('debianVersionSuffix', "-0~ppa1", False) \
+    ]), \
+    ('UPLOAD', [ \
+        ('ppa', None, False) \
     ]) \
 ]
 
@@ -849,11 +852,11 @@ def build_pkg(conf, tag=False, sign=False, upstreamTreeish=None):
             execCmd(["gbp", "buildpackage"] + tagOpt + upstreamOpt + \
                     ["--git-debian-branch=" + conf['debianBranch'], \
                     "--git-upstream-branch=" + conf['upstreamBranch'], \
-                    "--git-export-dir=" + BUILD_DIR, "--git-builder=debuild -S"])
+                    "--git-export-dir=" + BUILD_DIR, "--git-builder=" + BUILD_CMD])
             changesFile = get_file_with_extension(BUILD_DIR, CHANGES_FILE_EXT)
             if changesFile:
                 log("Running Lintian...", TextType.INFO)
-                execCmd(["lintian", "-I", os.path.join(BUILD_DIR, changesFile)])
+                log(execCmd(["lintian", "-I", os.path.join(BUILD_DIR, changesFile)]))
                 log("Lintian OK", TextType.INFO)
             else:
                 log("Changesfile (" + CHANGES_FILE_EXT + ") not found in \'" + \
@@ -921,13 +924,22 @@ if args.version:
 # Switch to target directory.
 os.chdir(args.dir)
 
-# Pre load config if not being created.
-if args.action != 'create-config':
-    log("Reading config file")
+# Prepare if a subcommand is used.
+if args.action and args.action != 'create-config':
+    # Pre load config if not being created.
+    log("Reading config file", TextType.INFO)
     try:
         config = get_config(args.config)
     except ConfigError as e:
         log_err(e);
+        quit()
+    
+    # Save current branch name.
+    log("Saving initial branch to restor after execution", TextType.INFO)
+    try:
+        oldBranch = get_branch()
+    except GitError as e:
+        log_err(e)
         quit()
 
 ## Sub commands ##
@@ -961,3 +973,11 @@ elif args.action == 'build-pkg':
 # Build and commit package.
 elif args.action == 'commit-pkg':
     buld_pkg(config, True, True)
+
+# Restore branch state.
+try:
+    if oldBranch != get_branch():
+        log("Restoring active branch to \'" + oldBranch + "\'"q, TextType.INFO)
+        switch_branch(oldBranch)
+except GitError as e:
+    log_err(e)

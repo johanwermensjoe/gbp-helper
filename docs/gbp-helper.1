@@ -67,21 +67,22 @@ Sets path to the config file (defaults to ./gbp\-helper).
 Commits the current release to the upstream branch and tag.
 Merges the created upstream with the debian branch.
 .TP
-.B undo\-release
-Undos the latest commit release operation.
-.TP
 .B test\-release
 Prepares a release and builds the package
 but leaves repository unchanged.
 .TP
-.B upload
-Uploads the last build to the configured PPA.
+.B update\-changelog
+Updates the changelog for a new release and lets user review with editor.
+Commits the changes.
 .TP
 .B build\-pkg
 Builds the latest debian package but do not tag.
 .TP
 .B commit\-pkg
 Builds the latest debian package and tags it.
+.TP
+.B upload
+Uploads the last build to the configured PPA.
 .TP
 .B create\-config
 Creates an example config file.
