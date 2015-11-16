@@ -19,4 +19,4 @@
 
 # Main packaging script.
 %:
-	dh $@
+	dh $@ --with python2
