@@ -1,3 +1,11 @@
+gbp-helper (0.2-0~ppa1) trusty; urgency=low
+
+  * Updated paths + added dep.
+  * Updated links, intall paths and added python dependencies.
+  * Imported Upstream version 0.2
+
+ -- Johan Wermensjö <johanwermensjoe@gmail.com>  Tue, 17 Nov 2015 19:51:35 +0100
+
 gbp-helper (0.1-0~ppa1) trusty; urgency=low
 
   * Initial release.
