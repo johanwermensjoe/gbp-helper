@@ -5,6 +5,9 @@ gbphelper module:
 Used as a helper script for gbp-buildpackage.
 """
 
+## TODO Never leave repository in a half finished state if possible.
+####### Always exit safley.
+
 import os
 import argparse
 import gbputil
@@ -66,12 +69,13 @@ def create_config(flags, config_path):
     # Print success message.
     log_success(flags)
 
-def prepare_release(conf, flags, sign):
+def prepare_release(conf, flags, sign): ## TODO Make safe!
     """
     Prepares release, committing the latest to
     upstream and merging with debian. Also tags the upstrem commit.
     Returns the tag name on success.
     """
+    # TODO Prompt for release version if head isn't tagged.
     # Constants
     log(flags, "Setting build paths")
     tmp_path = os.path.join(_TMP_DIR, conf['packageName'])
@@ -81,8 +85,8 @@ def prepare_release(conf, flags, sign):
     try:
         release_version = gbputil.get_head_tag_version( \
                             conf['releaseBranch'], conf['releaseTagType'])
-        log(flags, "Creating upstream for release version \'" + \
-                        release_version + "\'")
+        log(flags, "Selected release version \'" + \
+                        release_version + "\' for upstream commit")
         
         upstream_version = gbputil.get_head_tag_version( \
                             conf['upstreamBranch'], conf['upstreamTagType'])
@@ -146,7 +150,7 @@ def prepare_release(conf, flags, sign):
 
     except Error as err:
         log_err(flags, err)
-        quit()
+        return
 
     # Cleanup.git status
     log(flags, "Cleaning up temporary files")
@@ -159,7 +163,7 @@ def prepare_release(conf, flags, sign):
     # Return the name of the upstream tag.
     return conf['upstreamTagType'] + "/" + release_version
 
-def test_release(conf, flags):
+def test_release(conf, flags): ## TODO Make safe!
     """
     Prepares a release and builds the package
     but reverts all changes after, leaving the repository unchanged.
@@ -169,7 +173,7 @@ def test_release(conf, flags):
         release_commit = gbputil.get_head_commit(conf['releaseBranch'])
     except GitError as err:
         log_err(flags, err)
-        quit()
+        return
 
     if not gbputil.is_working_dir_clean():
         # Only stash if uncommitted changes are on release branch.
@@ -193,7 +197,7 @@ def test_release(conf, flags):
             # Uncommitted changes on another branch, quit
             log(flags, "Uncommitted changes on branch \'" + current_branch + \
                     "\', commit before proceding.", TextType.ERR)
-            quit()
+            return
     else:
         log(flags, "Working directory clean, no commit needed")
         reset_release = False
@@ -264,22 +268,24 @@ def test_release(conf, flags):
 
     except GitError as err:
         log_err(flags, err)
-        quit()
+        return
 
     # Print success message.
     log_success(flags)
 
 def upload_pkg(conf, flags):
-    """ Uploads the latest build to the ppa set in the config file. """
+    """
+    Uploads the latest build to the ppa set in the config file.
+    """
     # Ask user for confirmation
     if not gbputil.prompt_user_yn("Upload the latest build?"):
-        quit()
+        return
 
     # Check if ppa name is set in config.
     if not conf['ppaName']:
         log_err(flags, ConfigError("The value ppaName is not set" + \
                                 " in the config file, aborting upload"))
-        quit()
+        return
 
     # Make sure that the latest debian commit is tagged.
     try:
@@ -289,7 +295,7 @@ def upload_pkg(conf, flags):
         log_err(flags, err)
         log(flags, "The latest debian commit isn't porperly tagged, " + \
                         "run gbp-helper -b", TextType.ERR)
-        quit()
+        return
 
     # Set the name of the .changes file and upload.
     changes_file = gbputil.get_file_with_extension(_BUILD_DIR, \
@@ -306,7 +312,7 @@ def upload_pkg(conf, flags):
     else:
         log(flags, "Changefile (" + _CHANGES_FILE_EXT + ") not found in " + \
                     "\'" + _BUILD_DIR + "\', aborting upload", TextType.ERR)
-        quit()
+        return
 
     # Print success message.
     log_success(flags)
@@ -315,10 +321,12 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
                 upstream_treeish=None, sign_changes=False, sign_source=False):
     """
     Builds package from the latest debian commit.
-    Tags the debian commit if arg: "tag" is True.
-    Signs the created tag if signTag (and tag) is True.
-    Uses a treeish decriptor to create the upstream tarball
-    instead of a changelog ref.
+    - tag               -- Set to True to tag the debian commit after build.
+    - sign-tag          -- Set to True to sign the created tag.
+    - upstream_treeish  -- Set to <treeish> to set the upstream tarball source.
+                           instead of the tag version in the changelog.
+    - sign_changes      -- Set to True to sign the .changes file.
+    - sign_source       -- Set to True to sign the .source file.
     """
     # Check if treeish is used for upstream.
     if not upstream_treeish:
@@ -329,7 +337,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
                             upstream_version + "\'")
         except GitError as err:
             log_err(err)
-            quit()
+            return
     else:
        log(flags, "Building debian package for \'" + upstream_treeish + "\'")
 
@@ -404,7 +412,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
                         "\', skipping lintian", TextType.WARNING)
     except CommandError as err:
         log_err(flags, err)
-        quit()
+        return
 
     # Print success message.
     log_success(flags)
@@ -427,7 +435,7 @@ def update_changelog(conf, flags, version=None, commit=False, release=False):
             log(flags, "Using version \'" + version + "\'")
         except GitError as err:
             log_err(flags, err)
-            quit()
+            return
     else:
         log(flags, "Updating changelog with version \'" + version + "\'")
 
@@ -449,7 +457,7 @@ def update_changelog(conf, flags, version=None, commit=False, release=False):
                     conf['debianBranch'] + "\'")
     except Error as err:
         log_err(flags, err)
-        quit()
+        return
 
     # Print success message.
     log_success(flags)
@@ -532,9 +540,7 @@ def exec_action(flags, action, config_path, rep_dir):
 
     # Restore branch state.
     try:
-        # Only try to switch back if update-changelog hasn't run (leaves changes).
-        if initial_branch != gbputil.get_branch() and \
-                action != 'update-changelog':
+        if initial_branch != gbputil.get_branch():
             log(flags, "Restoring active branch to \'" + initial_branch + \
                     "\'", TextType.INFO)
             gbputil.switch_branch(initial_branch)
@@ -548,20 +554,20 @@ def parse_args_and_execute():
     """ Parses arguments and executes requested operations. """
 
     parser = argparse.ArgumentParser( \
-                description='Helps maintain debian packeges with git.')
+                description='Maintain debian packeges with git and gbp.')
 
     # Optional arguments.
     parser.add_argument('-V', '--version', action='store_true', \
-        help='shows the version')
+        help='shows the current version number')
     group_vq = parser.add_mutually_exclusive_group()
     group_vq.add_argument('-v', '--verbose', action='store_true', \
-        help='enables verbose mode')
+        help='enable verbose mode')
     group_vq.add_argument("-q", "--quiet", action="store_true", \
-        help='enables quiet mode')
+        help='enable quiet mode')
     parser.add_argument('-c', '--color', action='store_true', \
-        help='enables colored text')
+        help='enable colored output')
     parser.add_argument('-s', '--safemode', action='store_true', \
-        help='prevents any file changes')
+        help='prevent any file changes')
     parser.add_argument('--config', default=_DEFAULT_CONFIG_PATH, \
         help='path to the gbp-helper.conf file')
 
@@ -569,7 +575,7 @@ def parse_args_and_execute():
     parser.add_argument('action', nargs='?', \
         choices=['prepare-release', 'test-release', 'update-changelog', \
                 'build-pkg', 'commit-pkg', 'upload', 'create-config'], \
-        help="the main action to execute")
+        help="the main action (see gbp-helper(1)) for details")
 
     # General args.
     parser.add_argument('dir', nargs='?', default=os.getcwd(), \
