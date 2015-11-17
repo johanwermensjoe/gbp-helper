@@ -81,6 +81,9 @@ def prepare_release(conf, flags, sign):
     try:
         release_version = gbputil.get_head_tag_version( \
                             conf['releaseBranch'], conf['releaseTagType'])
+        log(flags, "Creating upstream for release version \'" + \
+                        release_version + "\'")
+        
         upstream_version = gbputil.get_head_tag_version( \
                             conf['upstreamBranch'], conf['upstreamTagType'])
         source_dir = conf['packageName'] + "-" + release_version
@@ -105,8 +108,9 @@ def prepare_release(conf, flags, sign):
             os.makedirs(source_dir_path)
 
         # Extract the latest commit to release branch.
-        log(flags, "Extracting latest commit from release branch \'" + \
-                conf['releaseBranch'] + "\'")
+        log(flags, "Extracting release version \'" + release_version + \
+                        "\' from release branch \'" + \
+                        conf['releaseBranch'] + "\'")
         if not flags['safemode']:
             exec_cmd(["git", "archive", conf['releaseBranch'], "-o", \
                         archive_path])
@@ -116,14 +120,13 @@ def prepare_release(conf, flags, sign):
                         "--exclude=LICENSE", "--exclude-vcs"])
 
         # Create the upstream tarball.
-        log(flags, "Making upstream tarball from release branch: \'" + \
-                conf['releaseBranch'] + "\'")
+        log(flags, "Making upstream tarball from extracted source files")
         if not flags['safemode']:
             exec_cmd(["tar", "--directory=" + tmp_path, "-czf", tar_path, \
                         source_dir])
 
         # Commit tarball to upstream branch and tag.
-        log(flags, "Importing tarball to upstream branch: \'" + \
+        log(flags, "Importing tarball to upstream branch \'" + \
                 conf['upstreamBranch'] + "\'")
 
         # Check if sould sign and gpg key is set.
@@ -146,7 +149,7 @@ def prepare_release(conf, flags, sign):
         quit()
 
     # Cleanup.git status
-    log(flags, "Cleaning up")
+    log(flags, "Cleaning up temporary files")
     if not flags['safemode']:
         gbputil.remove_dir(flags, tmp_path)
 
@@ -200,9 +203,9 @@ def test_release(conf, flags):
         # Only tag if no tags exists at HEAD.
         if not gbputil.get_head_tags(conf['releaseBranch']):
             remove_release_tag = True
-            release_version = gbputil.get_latest_tag_version( \
+            latest_release_version = gbputil.get_latest_tag_version( \
                                 conf['releaseBranch'], conf['releaseTagType'])
-            tmp_version = gbputil.get_next_version(release_version)
+            tmp_version = gbputil.get_next_version(latest_release_version)
             tmp_release_tag = conf['releaseTagType'] + "/" + tmp_version
 
             log(flags, "Tagging release HEAD as \'" + tmp_release_tag + "\'")
@@ -218,8 +221,12 @@ def test_release(conf, flags):
         # Prepare release, no tags.
         upstream_tag = prepare_release(conf, flags, False)
 
+        # Find the HEAD release version.
+        release_version = gbputil.get_head_tag_version( \
+                                conf['releaseBranch'], conf['releaseTagType'])
+
         # Update the changlog to match upstream version.
-        tmp_debian_version = tmp_version + conf['debianVersionSuffix']
+        tmp_debian_version = release_version + conf['debianVersionSuffix']
         update_changelog(conf, flags, version=tmp_debian_version, commit=True)
 
         # Test package build.
@@ -313,15 +320,25 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
     Uses a treeish decriptor to create the upstream tarball
     instead of a changelog ref.
     """
+    # Check if treeish is used for upstream.
+    if not upstream_treeish:
+        try:
+            upstream_version = gbputil.get_head_tag_version( \
+                                conf['upstreamBranch'], conf['upstreamTagType'])
+            log(flags, "Building debian package for upstream version \'" + \
+                            upstream_version + "\'")
+        except GitError as err:
+            log_err(err)
+            quit()
+    else:
+       log(flags, "Building debian package for \'" + upstream_treeish + "\'")
+
     # Prepare build.
-    log(flags, "Switching to debian branch: <" + conf['debianBranch'] + ">")
+    log(flags, "Switching to debian branch \'" + conf['debianBranch'] + "\'")
     gbputil.switch_branch(conf['debianBranch'])
 
     log(flags, "Cleaning old build files in \'" + _BUILD_DIR + "\'")
     gbputil.clean_dir(flags, _BUILD_DIR)
-
-    # Build and without tagging and do linthian checks.
-    log(flags, "Building debian package")
 
     # Check if tag should be created.
     tag_opt = ["--git-tag"] if tag else []
@@ -345,7 +362,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
     sign_build_opt += ["-us"] if not sign_source else []
     if sign_changes or sign_source:
         if conf['gpgKeyId']:
-            sign_build_opt = ["--key-id " + conf['gpgKeyId']]
+            sign_build_opt += ["-k" + conf['gpgKeyId']]
         else:
             log(flags, "Your gpg key id is not set in your " + \
                         "gbp-helper.conf, disabling build signing.", \
@@ -428,7 +445,7 @@ def update_changelog(conf, flags, version=None, commit=False, release=False):
                     "--spawn-editor=snapshot"] + commit_opt + \
                     distribution_opt + release_opt)
         if commit:
-            log(flags, "Commiting updated debian/changelog to branch \'" + \
+            log(flags, "Committing updated debian/changelog to branch \'" + \
                     conf['debianBranch'] + "\'")
     except Error as err:
         log_err(flags, err)
@@ -473,10 +490,10 @@ def exec_action(flags, action, config_path, rep_dir):
             quit()
 
         # Save current branch name.
-        log(flags, "Saving initial branch to restor after execution", \
-                        TextType.INFO)
         try:
-            old_branch = gbputil.get_branch()
+            initial_branch = gbputil.get_branch()
+            log(flags, "Saving initial branch \'" + initial_branch + "\' " + \
+                        "to restore after execution", TextType.INFO)
         except GitError as err:
             log_err(flags, err)
             quit()
@@ -516,11 +533,11 @@ def exec_action(flags, action, config_path, rep_dir):
     # Restore branch state.
     try:
         # Only try to switch back if update-changelog hasn't run (leaves changes).
-        if old_branch != gbputil.get_branch() and \
+        if initial_branch != gbputil.get_branch() and \
                 action != 'update-changelog':
-            log(flags, "Restoring active branch to \'" + old_branch + \
+            log(flags, "Restoring active branch to \'" + initial_branch + \
                     "\'", TextType.INFO)
-            gbputil.switch_branch(old_branch)
+            gbputil.switch_branch(initial_branch)
     except GitError as err:
         log_err(flags, err)
 
