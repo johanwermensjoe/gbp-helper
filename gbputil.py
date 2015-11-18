@@ -496,9 +496,10 @@ def get_config(config_path, template):
 
 def exec_cmd(cmd):
     """
-    Executes a shell command given as a list of the command followed by the arguments.
+    Executes a shell command.
     Errors will be raised as CommandError.
     Returns the command output.
+    - cmd   -- list of the executable followed by the arguments.
     """
     pipe = subprocess.PIPE
     cmd_delimiter = " "
@@ -516,6 +517,16 @@ def exec_cmd(cmd):
     else:
         # Success!
         return stdoutput
+
+def exec_editor(editor_cmd, _file):
+    """
+    Opens a shell text editor.
+    - _file   -- File to be opened.
+    """
+    try:
+        subprocess.call_check([editor_cmd, _file])
+    except Exception as err:
+        raise CommandError(EDITOR_CMD + " " + _file, err.msg)
 
 def clean_dir(flags, dir_path):
     """
@@ -569,3 +580,11 @@ def prompt_user_yn(question, default="yes"):
         else:
             sys.stdout.write("Please respond with 'yes' or 'no' "
                              "(or 'y' or 'n').\n")
+
+def prompt_user(prompt):
+    """
+    Prompts the user for input and returns their answer.
+    """
+    sys.stdout.write(prompt)
+    input_ = raw_input()
+    return input_

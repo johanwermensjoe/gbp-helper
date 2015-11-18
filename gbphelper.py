@@ -21,12 +21,14 @@ __version__ = "0.2"
 #########################################################################
 
 _DEFAULT_CONFIG_PATH = "gbphelper.conf"
+_CHANGLOG_PATH = "debian/changelog"
 _BUILD_DIR = "../build-area"
-_BUILD_CMD = "debuild"
+_TMP_DIR = "/tmp"
 _CHANGES_FILE_EXT = ".changes"
 _ORIG_TAR_FILE_EXT = ".orig.tar.gz"
-_TMP_DIR = "/tmp"
 _MASTER_BRANCH = "master"
+_BUILD_CMD = "debuild"
+_EDITOR_CMD = "editor"
 
 _CONFIG = \
 [('GIT', [\
@@ -75,7 +77,6 @@ def prepare_release(conf, flags, sign): ## TODO Make safe!
     upstream and merging with debian. Also tags the upstrem commit.
     Returns the tag name on success.
     """
-    # TODO Prompt for release version if head isn't tagged.
     # Constants
     log(flags, "Setting build paths")
     tmp_path = os.path.join(_TMP_DIR, conf['packageName'])
@@ -83,8 +84,21 @@ def prepare_release(conf, flags, sign): ## TODO Make safe!
 
     # Get the tagged version from the release branch.
     try:
-        release_version = gbputil.get_head_tag_version( \
+        try:
+            release_version = gbputil.get_head_tag_version( \
                             conf['releaseBranch'], conf['releaseTagType'])
+        except GitError:
+            # Prompt user to tag the HEAD of release branch.
+            log(flags, "The HEAD commit on the release branch \'" + \
+                        conf['releaseBranch'] + "\' may not be tagged"
+            raw_version = gbputil.prompt_user("Enter release version to tag" +
+                                                ", otherwise leave empty")
+            if raw_version:
+                gbp.tag_head(flags, conf['releaseBranch'], \
+                                conf['releaseTagType'] + "/" + raw_version)
+            else:
+                return
+
         log(flags, "Selected release version \'" + \
                         release_version + "\' for upstream commit")
         
@@ -417,10 +431,12 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
     # Print success message.
     log_success(flags)
 
-def update_changelog(conf, flags, version=None, commit=False, release=False):
+def update_changelog(conf, flags, version=None, editor=False, \
+                            commit=False, release=False):
     """
     Update the changelog with the git commit messsages since last build.
     - version   -- Set to <new version> to be created.
+    - editor    -- Set to True to open in a texteditor after changes.
     - commit    -- Set to True will commit the changes.
     - release   -- Set to True will prepare release with review in editor.
     """
@@ -439,7 +455,6 @@ def update_changelog(conf, flags, version=None, commit=False, release=False):
     else:
         log(flags, "Updating changelog with version \'" + version + "\'")
 
-    commit_opt = (["--commit"] if commit else [])
     distribution_opt = (["--distribution=" + conf['distribution']] \
                             if conf['distribution'] else [])
     release_opt = (["--release"] if release else [])
@@ -447,14 +462,23 @@ def update_changelog(conf, flags, version=None, commit=False, release=False):
     try:
         gbputil.switch_branch(conf['debianBranch'])
         if not flags['safemode']:
+            # Update changelog.
             exec_cmd(["gbp", "dch", "--debian-branch=" + \
                     conf['debianBranch'], "--new-version=" + version, \
                     "--urgency=" + conf['urgency'], \
-                    "--spawn-editor=snapshot"] + commit_opt + \
-                    distribution_opt + release_opt)
+                    "--spawn-editor=snapshot"] + distribution_opt + \
+                    release_opt)
+
+            # Check if editor should be opened.
+            if editor:
+                gbputil.exec_editor(_EDITOR_CMD, _CHANGELOG_PATH)
+        
+        # Check if changes should be committed.
         if commit:
             log(flags, "Committing updated debian/changelog to branch \'" + \
                     conf['debianBranch'] + "\'")
+            gbputil.commit_changes(flags, "Update changelog for " + \
+                                    version + " release."
     except Error as err:
         log_err(flags, err)
         return
@@ -523,7 +547,7 @@ def exec_action(flags, action, config_path, rep_dir):
 
     # Updates the changelog with set options and commits the changes.
     elif action == 'update-changelog':
-        update_changelog(conf, flags, commit=True, release=True)
+        update_changelog(conf, flags, editor=True, commit=True, release=True)
 
     # Upload latest build.
     elif action == 'upload':
