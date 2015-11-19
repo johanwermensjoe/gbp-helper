@@ -80,7 +80,8 @@ def prepare_release(conf, flags, sign): ## TODO Make safe!
     # Constants
     log(flags, "Setting build paths")
     tmp_path = os.path.join(_TMP_DIR, conf['packageName'])
-    archive_path = os.path.join(tmp_path, conf['releaseBranch'] + "_archive.tar")
+    archive_path = os.path.join(tmp_path, conf['releaseBranch'] + \
+											"_archive.tar")
 
     # Get the tagged version from the release branch.
     try:

@@ -43,7 +43,7 @@ class GitError(Error):
         opr  -- attempted operation for which the error occurred
         msg  -- explanation of the error
     """
-
+    
     def __init__(self, msg, opr=None):
         self.opr = opr
         self.msg = msg
@@ -94,16 +94,19 @@ def switch_branch(branch):
                             branch + "\' exists and all changes " + \
                             "are commited", "checkout")
 
-def get_head_tags(branch):
+def get_head_tags(branch, tag_type):
     """
-    Retrives the tags for the latest commit (HEAD).
+    Retrives the tags for the HEAD commit on form (<tag_type>/<version>).
     Errors will be raised as GitError (underlying errors).
     Returns the list of HEAD tags for the given branch (can be empty).
     """
     switch_branch(branch)
     try:
+        # Get all tags at HEAD.
         head_tags = exec_cmd(["git", "tag", "--points-at", "HEAD"]).rstrip()
-        return head_tags
+        # Find the matching tags.
+        matching_tags = re.findall(r"(?m)^" + tag_type + r"/.*$", head_tags)
+        return matching_tags
     except CommandError:
         raise GitError("The tags pointing at \'" + branch + \
                         "\' HEAD, could not be retrived", "tag")
@@ -111,24 +114,22 @@ def get_head_tags(branch):
 def get_head_tag(branch, tag_type):
     """
     Retrives the latest HEAD tag (<tag_type>/<version>) for a branch.
-    Errors will be raised as GitError (underlying errors or if no tags exists).
+    Errors will be raised as GitError (underlying errors).
+	Returns the name of the latest tag (largest version number).
     """
     # Get the latest HEAD tags.
     head_tags = get_head_tags(branch)
 
-    # Find the matching tags.
-    matching_tags = re.findall(r"(?m)^" + tag_type + r"/.*$", head_tags)
-
     # Make sure atleast some tag follows the right format.
-    if matching_tags:
+    if head_tags:
         # Find the "latest tag"
-        # Assuming format: <pkg_name>/<upstream_version>~<deb_version>
-        matching_tags.sort(key=lambda s: [int(v) for v in \
-                                s.split('/')[1].split('~')[0].split('.')])
-        return matching_tags[0]
+        # Assuming std format: <tag_type>/<version>(-<deb_version>)
+        head_tags.sort(key=lambda s: [int(v) for v in \
+                                s.split('/')[1].split('-')[0].split('.')])
+        return head_tags[0]
     else:
         raise GitError("The HEAD on branch \'" + branch + \
-                            "\' has no tags of type: " + tag_type + "/<version>")
+                        "\' has no tags of type: " + tag_type + "/<version>")
 
 def get_latest_tag(branch, tag_type):
     """
@@ -235,7 +236,8 @@ def get_head_commit(branch):
     try:
         return exec_cmd(["git", "rev-parse", "HEAD"]).rstrip()
     except CommandError:
-        raise GitError("Could not find the name of the current branch", "rev-parse")
+        raise GitError("Could not find HEAD commit of branch \'" + \
+                            branch + "\'", "rev-parse")
 
 ## Affecting repository / files.
 
@@ -588,3 +590,44 @@ def prompt_user(prompt):
     sys.stdout.write(prompt)
     input_ = raw_input()
     return input_
+
+####################### Comnbined Operations ############################
+#########################################################################
+### This section defines functions combining IO/UI with Git operations.
+### Some functions will print progress messages.
+### If a failure occurs functions will try to reset any persistant operations
+### alreday executed before the error.
+### After the reset is attempted, functions terminates with an OpError.
+#########################################################################
+
+def verify_create_head_tag(branch, tag_type, version=None):
+    """
+    Verifies or creates a version tag for a branch HEAD.
+    If tag needs to be created and no version is given,
+    user will be prompted for version.
+    - branch    -- The branch to tag.
+    - tag_type  -- The tag type (<tag_type>/<version>).
+    - version   -- The version to use.
+    Returns the version created or found.
+    """
+    try:
+        # Check that atleast one head tag exists.
+        if gbputil.get_head_tags(branch, tag_type):
+            return gbputil.get_head_tag_version(branch, tag_type)
+        else:
+            log(flags, "The HEAD commit on branch \'" + branch + \
+                            "\' is not tagged correctly"
+            if not version:
+                # Prompt user to tag the HEAD of release branch.
+                raw_version = gbputil.prompt_user("Enter release version to tag" +
+                                            ", otherwise leave empty")
+                if raw_version:
+                    version = raw_version
+                else:
+                    raise OpError("Tagging of HEAD commit on branch \'" + \
+                                    branch + "\' aborted by user")
+
+            # Tag using the given version.
+            gbp.tag_head(flags, branch, tag_type + "/" + version) 
+    except GitError as err:
+        raise OpError(err)
