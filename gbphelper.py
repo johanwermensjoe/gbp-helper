@@ -24,6 +24,8 @@ _DEFAULT_CONFIG_PATH = "gbphelper.conf"
 _CHANGLOG_PATH = "debian/changelog"
 _BUILD_DIR = "../build-area"
 _TMP_DIR = "/tmp"
+_TMP_TAR_SUBDIR = "tarball"
+_TMP_BAK_SUBDIR = "backup"
 _CHANGES_FILE_EXT = ".changes"
 _ORIG_TAR_FILE_EXT = ".orig.tar.gz"
 _MASTER_BRANCH = "master"
@@ -79,33 +81,26 @@ def prepare_release(conf, flags, sign):
     """
     # Constants
     log(flags, "Setting build paths")
-    tmp_path = os.path.join(_TMP_DIR, conf['packageName'])
-    archive_path = os.path.join(tmp_path, conf['releaseBranch'] + \
+    tmp_dir = os.path.join(_TMP_DIR, conf['packageName'], _TMP_TAR_SUBDIR)
+    archive_path = os.path.join(tmp_dir, conf['releaseBranch'] + \
 											"_archive.tar")
 
-    # Get the tagged version from the release branch.
-    # On fail, no restore needed.
     try:
-        create_ver = gbputil.verify_create_head_tag(
+        # Get the tagged version from the release branch.
+        create_ver = gbputil.verify_create_head_tag(flags, \
                         conf['releaseBranch'], \
                         conf['releaseTagType'])
         release_ver = create_ver[0]
-        del_release_tag = create_ver[1]
-    except Error as err:
-        log_err(err)
-        raise OpError()
 
-    log(flags, "Selected release version \'" + \
+        log(flags, "Selected release version \'" + \
                     release_ver + "\' for upstream commit")
 
-    # Check versions, prepare tarball and import it.
-    # On fail, delete release tag if needed and clean tarball directory.
-    try:
+        # Check versions, prepare tarball and import it.
         upstream_ver = gbputil.get_head_tag_version( \
                             conf['upstreamBranch'], conf['upstreamTagType'])
         source_dir = conf['packageName'] + "-" + release_ver
-        source_dir_path = os.path.join(tmp_path, source_dir)
-        tar_path = os.path.join(tmp_path, conf['packageName'] + "_" + \
+        source_dir_path = os.path.join(tmp_dir, source_dir)
+        tar_path = os.path.join(tmp_dir, conf['packageName'] + "_" + \
                     release_ver + _ORIG_TAR_FILE_EXT)
 
         # Check that the release version is greater than the upstream version.
@@ -120,7 +115,7 @@ def prepare_release(conf, flags, sign):
 
         # Clean build directory.
         log(flags, "Cleaning tarball directory")
-        gbputil.clean_dir(flags, tmp_path)
+        gbputil.clean_dir(flags, tmp_dir)
         if not flags['safemode']:
             os.makedirs(source_dir_path)
 
@@ -139,7 +134,7 @@ def prepare_release(conf, flags, sign):
         # Create the upstream tarball.
         log(flags, "Making upstream tarball from extracted source files")
         if not flags['safemode']:
-            exec_cmd(["tar", "--directory=" + tmp_path, "-czf", tar_path, \
+            exec_cmd(["tar", "--directory=" + tmp_dir, "-czf", tar_path, \
                         source_dir])
 
         # Commit tarball to upstream branch and tag.
@@ -167,7 +162,7 @@ def prepare_release(conf, flags, sign):
 
     # Cleanup tarball directory
     log(flags, "Cleaning up temporary files")
-    gbputil.remove_dir(flags, tmp_path)
+    gbputil.remove_dir(flags, tmp_dir)
 
     # Print success message.
     log_success(flags)
@@ -175,7 +170,7 @@ def prepare_release(conf, flags, sign):
     # Return the name of the upstream tag.
     return conf['upstreamTagType'] + "/" + release_ver
 
-def test_release(conf, flags): ## TODO Make safe!
+def test_release(conf, flags):
     """
     Prepares a release and builds the package
     but reverts all changes after, leaving the repository unchanged.
@@ -201,7 +196,8 @@ def test_release(conf, flags): ## TODO Make safe!
 
                 # Apply stash and create a tmp commit.
                 log(flags, "Creating temporary release commit")
-                gbputil.apply_stash(flags, stash_name, False)
+                gbputil.apply_stash(flags, conf['releaseBranch'], \
+                                        stash_name, False)
                 gbputil.commit_changes(flags, "Temp release commit.")
             except Error as err:
                 log_err(flags, err)
@@ -215,20 +211,16 @@ def test_release(conf, flags): ## TODO Make safe!
         reset_release = False
 
     try:
-        # Tag the last commit properly.
-        # Only tag if no tags exists at HEAD.
-        if not gbputil.get_head_tags(conf['releaseBranch']):
-            remove_release_tag = True
-            latest_release_ver = gbputil.get_latest_tag_version( \
+        # Get the tagged version from the release branch.
+        latest_release_ver = gbputil.get_latest_tag_version( \
                                 conf['releaseBranch'], conf['releaseTagType'])
-            tmp_ver = gbputil.get_next_version(latest_release_ver)
-            tmp_release_tag = conf['releaseTagType'] + "/" + tmp_ver
-
-            log(flags, "Tagging release HEAD as \'" + tmp_release_tag + "\'")
-            gbputil.tag_head(flags, conf['releaseBranch'], tmp_release_tag)
-        else:
-            log(flags, "Release HEAD already tagged, skipping tagging")
-            remove_release_tag = False
+        next_release_ver = gbputil.get_next_version(latest_release_ver)
+        create_ver = gbputil.verify_create_head_tag(flags, \
+                        conf['releaseBranch'], conf['releaseTagType'], \
+                        next_release_ver)
+        release_ver = create_ver[0]
+        release_tag = create_ver[1]
+        del_release_tag = create_ver[2]
 
         # Store debian and upstream commits to later revert to them.
         debian_commit = gbputil.get_head_commit(conf['debianBranch'])
@@ -237,13 +229,9 @@ def test_release(conf, flags): ## TODO Make safe!
         # Prepare release, no tags.
         upstream_tag = prepare_release(conf, flags, False)
 
-        # Find the HEAD release version.
-        release_ver = gbputil.get_head_tag_version( \
-                                conf['releaseBranch'], conf['releaseTagType'])
-
         # Update the changlog to match upstream version.
-        tmp_debian_ver = release_ver + conf['debianVersionSuffix']
-        update_changelog(conf, flags, version=tmp_debian_ver, commit=True)
+        debian_ver = release_ver + conf['debianVersionSuffix']
+        update_changelog(conf, flags, version=debian_ver, commit=True)
 
         # Test package build.
         build_pkg(conf, flags, conf['testBuildFlags'])
@@ -255,10 +243,10 @@ def test_release(conf, flags): ## TODO Make safe!
         gbputil.delete_tag(flags, upstream_tag)
 
         # Remove temporary release tag if created.
-        if remove_release_tag:
+        if del_release_tag:
             log(flags, "Removing temporary release tag \'" + \
-                    tmp_release_tag + "\'")
-            gbputil.delete_tag(flags, tmp_release_tag)
+                    release_tag + "\'")
+            gbputil.delete_tag(flags, release_tag)
 
         # Reset master if needed.
         if reset_release:
@@ -400,7 +388,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
                     "--git-export-dir=" + _BUILD_DIR, "--git-builder=" + \
                     build_cmd])
 
-            changes_files = gbputil.get_file_with_extension(_BUILD_DIR, \
+            changes_files = gbputil.get_files_with_extension(_BUILD_DIR, \
                                                             _CHANGES_FILE_EXT)
             if changes_files:
                 # Let lintian fail without quitting.
@@ -451,6 +439,7 @@ def update_changelog(conf, flags, version=None, editor=False, \
             log_err(flags, err)
             raise OpError()
     else:
+        debian_ver = version
         log(flags, "Updating changelog with version \'" + debian_ver + "\'")
 
     distribution_opt = (["--distribution=" + conf['distribution']] \
@@ -476,7 +465,7 @@ def update_changelog(conf, flags, version=None, editor=False, \
             log(flags, "Committing updated debian/changelog to branch \'" + \
                     conf['debianBranch'] + "\'")
             gbputil.commit_changes(flags, "Update changelog for " + \
-                                    debian_ver + " release."
+                                    debian_ver + " release.")
     except Error as err:
         log_err(flags, err)
         raise OpError()
@@ -484,15 +473,19 @@ def update_changelog(conf, flags, version=None, editor=False, \
     # Print success message.
     log_success(flags)
 
-def reset_repository(conf, flags):
+def reset_repository(flags, bak_dir):
     """
     Reset the repository to an earlier backed up state.
+    - bak_dir   -- The backup storage directory.
     """
     try:
-        gbputil.restore_backup(flags, _BACKUP_DIR)
+        gbputil.restore_backup(flags, bak_dir)
     except Error as err:
-        log_err(err)
+        log_err(flags, err)
         raise OpError()
+
+    # Print success message.
+    log_success(flags)
 
 ######################### Command Execution #############################
 #########################################################################
@@ -540,6 +533,14 @@ def exec_action(flags, action, config_path, rep_dir):
 
     ## Sub commands ##
     log(flags, "\nExecuting commad: " + action, TextType.INIT)
+    
+    try:
+        # Create repository backup.
+        bak_dir = os.path.join(_TMP_DIR, conf['packageName'], _TMP_BAK_SUBDIR)
+        gbputil.add_backup(flags, bak_dir, action)
+    except OpError as err:
+        log_err(flags, err)
+        quit()
 
     try:
         # Create example config.
@@ -573,7 +574,7 @@ def exec_action(flags, action, config_path, rep_dir):
 
         # Build and commit package.
         elif action == 'reset':
-            reset_repository()
+            reset_repository(flags, bak_dir)
 
         # Restore branch state.
         try:
@@ -583,10 +584,10 @@ def exec_action(flags, action, config_path, rep_dir):
                 gbputil.switch_branch(initial_branch)
         except Error:
             log(flags, "Could not switch back to initial branch \'" + \
-                        initial_branch + "\'", TextTypre.ERR)
+                        initial_branch + "\'", TextType.ERR)
 
     except OpError as err:
-        log("Try \'gbp-helper reset\' to restore repository to " + \
+        log(flags, "Try \'gbp-helper reset\' to restore repository to " + \
                 "previous state.", TextType.INFO)
 
 
@@ -616,8 +617,9 @@ def parse_args_and_execute():
 
     # The possible sub commands.
     parser.add_argument('action', nargs='?', \
-        choices=['prepare-release', 'test-release', 'update-changelog', \
-                'build-pkg', 'commit-pkg', 'upload', 'create-config'], \
+        choices=['test-release', 'prepare-release', 'update-changelog', \
+                'build-pkg', 'commit-pkg', 'upload', 'create-config', \
+                'reset'], \
         help="the main action (see gbp-helper(1)) for details")
 
     # General args.
