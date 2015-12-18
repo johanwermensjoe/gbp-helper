@@ -5,7 +5,6 @@ gbphelper module:
 Used as a helper script for gbp-buildpackage.
 """
 
-## TODO Never leave repository in a half finished state if possible.
 ####### Always exit safley.
 
 import os
@@ -21,7 +20,7 @@ __version__ = "0.2"
 #########################################################################
 
 _DEFAULT_CONFIG_PATH = "gbphelper.conf"
-_CHANGLOG_PATH = "debian/changelog"
+_CHANGELOG_PATH = "debian/changelog"
 _BUILD_DIR = "../build-area"
 _TMP_DIR = "/tmp"
 _TMP_TAR_SUBDIR = "tarball"
@@ -154,7 +153,8 @@ def prepare_release(conf, flags, sign):
         if not flags['safemode']:
             exec_cmd(["gbp", "import-orig", "--no-interactive", "--merge"] + \
                         tag_opt + ["--debian-branch=" + conf['debianBranch'], \
-                        "--upstream-branch=" + conf['upstreamBranch'], tar_path])
+                        "--upstream-branch=" + conf['upstreamBranch'], \
+                        tar_path])
 
     except Error as err:
         log_err(flags, err)
@@ -336,10 +336,10 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
             log(flags, "Building debian package for upstream version \'" + \
                             upstream_ver + "\'")
         except Error as err:
-            log_err(err)
+            log_err(flags, err)
             raise OpError()
     else:
-       log(flags, "Building debian package for \'" + upstream_treeish + "\'")
+        log(flags, "Building debian package for \'" + upstream_treeish + "\'")
 
     # Prepare build.
     log(flags, "Switching to debian branch \'" + conf['debianBranch'] + "\'")
@@ -354,7 +354,8 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
     # Prepare tag signing options.
     if sign_tag:
         if conf['gpgKeyId']:
-            tag_opt += ["--git-sign-tags", "--git-keyid=" + str(conf['gpgKeyId'])]
+            tag_opt += ["--git-sign-tags", "--git-keyid=" + \
+                            str(conf['gpgKeyId'])]
         else:
             log(flags, "Your gpg key id is not set in your " + \
                         "gbp-helper.conf, disabling tag signing.", \
@@ -400,7 +401,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
                 except CommandError as err:
                     if err.stderr:
                         # Some other error.
-                        log_err(err)
+                        log_err(flags, err)
                     else:
                         # Linitan check failed because of bad package.
                         log(flags, err.stdout.rstrip())
@@ -459,7 +460,7 @@ def update_changelog(conf, flags, version=None, editor=False, \
             # Check if editor should be opened.
             if editor:
                 gbputil.exec_editor(_EDITOR_CMD, _CHANGELOG_PATH)
-        
+
         # Check if changes should be committed.
         if commit:
             log(flags, "Committing updated debian/changelog to branch \'" + \
@@ -533,7 +534,7 @@ def exec_action(flags, action, config_path, rep_dir):
 
     ## Sub commands ##
     log(flags, "\nExecuting commad: " + action, TextType.INIT)
-    
+
     try:
         # Create repository backup.
         bak_dir = os.path.join(_TMP_DIR, conf['packageName'], _TMP_BAK_SUBDIR)
@@ -557,7 +558,8 @@ def exec_action(flags, action, config_path, rep_dir):
 
         # Updates the changelog with set options and commits the changes.
         elif action == 'update-changelog':
-            update_changelog(conf, flags, editor=True, commit=True, release=True)
+            update_changelog(conf, flags, editor=True, \
+                                commit=True, release=True)
 
         # Upload latest build.
         elif action == 'upload':

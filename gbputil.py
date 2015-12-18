@@ -13,11 +13,7 @@ import ConfigParser
 import time
 import datetime
 
-############################# Git Tools #################################
-#########################################################################
-### This section defines functions useful for build operations.
-### No functions will print any progress messages.
-### If a failure occurs functions will terminate with GitError.
+############################### Errors ##################################
 #########################################################################
 
 class Error(Exception):
@@ -45,7 +41,7 @@ class GitError(Error):
         opr     -- attempted operation for which the error occurred
         msg     -- explanation of the error
     """
-    
+
     def __init__(self, msg, opr=None):
         self.opr = opr
         self.msg = msg
@@ -157,7 +153,8 @@ def get_latest_tag(branch, tag_type):
                                 "--match", tag_type + "/*"]).rstrip()
     except CommandError:
         raise GitError("The branch \'" + branch + \
-                            "\' has no tags of type: " + tag_type + "/<version>")
+                            "\' has no tags of type: " + \
+                            tag_type + "/<version>")
 
 def get_version_from_tag(tag, tag_type):
     """
@@ -226,7 +223,8 @@ def is_working_dir_clean():
     try:
         return exec_cmd(["git", "status", "--porcelain"]).rstrip() == ''
     except CommandError:
-        raise GitError("Could not determine if working directory is clean.", "status")
+        raise GitError("Could not determine if working directory is clean.", \
+                        "status")
 
 def get_branch():
     """
@@ -237,7 +235,8 @@ def get_branch():
     try:
         return exec_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"]).rstrip()
     except CommandError:
-        raise GitError("Could not find the name of the current branch", "rev-parse")
+        raise GitError("Could not find the name of the current branch", \
+                        "rev-parse")
 
 def get_head_commit(branch):
     """
@@ -382,14 +381,14 @@ class TextType(object):
     INIT = ([_TextFormat.BOLD], 1)
     STD = ([], 0)
 
-def _print_format(msg, formats):
+def _print_format(msg, format_):
     """
-    Prints the "msg" to stdout using the specified text formats (TextFormat class).
-    Prints just standard text if no formats are given.
+    Prints the "msg" to stdout using the specified text format
+    (TextFormat class). Prints just standard text if no formats are given.
     """
-    if formats:
+    if format_:
         # Print format codes., message and end code.
-        print string.join(formats) + msg + _ColorCode.ENDC
+        print string.join(format_) + msg + _ColorCode.ENDC
     else:
         print msg
 
@@ -418,10 +417,10 @@ def log_err(flags, error):
             log(flags, error.msg, TextType.ERR)
         if error.err:
             # Print causing error if set.
-            error=error.err
+            error = error.err
         else:
             return
-    
+
     # Print standard errors.
     if isinstance(error, GitError):
         if error.opr:
@@ -436,9 +435,9 @@ def log_err(flags, error):
         log(flags, "\nStdErr:\n" + error.stderr, TextType.ERR_EXTRA)
 
     elif isinstance(error, ConfigError):
-        log(flags, ("An error with file: " + error.file + "\n" if error.file else "") + \
-                    ("On line: " + error.line + "\n" if error.line else "") + \
-                    error.msg, TextType.ERR)
+        log(flags, ("An error with file: " + error.file + \
+                    "\n" if error.file else "") + ("On line: " + error.line + \
+                    "\n" if error.line else "") + error.msg, TextType.ERR)
     else:
         log(flags, "Unknown type", TextType.ERR)
 
@@ -552,9 +551,9 @@ def exec_editor(editor_cmd, _file):
     - _file   -- File to be opened.
     """
     try:
-        subprocess.call_check([editor_cmd, _file])
+        subprocess.check_call([editor_cmd, _file])
     except Exception as err:
-        raise CommandError(EDITOR_CMD + " " + _file, err.msg)
+        raise CommandError(editor_cmd + " " + _file, err.msg)
 
 def clean_dir(flags, dir_path):
     """ Cleans or if not existant creates a directory.
@@ -660,7 +659,8 @@ def prompt_user_options(question, options, default=0):
             return default
         elif choice == 'a':
             return None
-        elif choice.isdigit() and int(choice) >= 0 and int(choice) < len(options):
+        elif choice.isdigit() and int(choice) >= 0 and \
+                int(choice) < len(options):
             return int(choice)
         else:
             sys.stdout.write("Please respond with a integer in the range " + \
@@ -738,10 +738,10 @@ def add_backup(flags, bak_dir, name="unknown"):
     """
     try:
         check_git_rep()
-        
+
         # Make sure there are no '_' in the name.
         name.replace('_', '-')
-        
+
         # Set the path to the new backup file.
         tar_path = os.path.join(bak_dir, name + "_" + \
                         time.strftime(_BAK_FILE_DATE_FORMAT) + _BAK_FILE_EXT)
@@ -751,7 +751,7 @@ def add_backup(flags, bak_dir, name="unknown"):
         if not flags['safemode']:
             mkdirs(flags, bak_dir)
             exec_cmd(["tar", "-czf", tar_path, "."])
-            
+
         return tar_path
     except Error as err:
         log(flags, "Could not add backup in \'" + bak_dir + "\'")
@@ -773,16 +773,16 @@ def restore_backup(flags, bak_dir, num=None):
         if not bak_files:
             raise OpError("No backups exists in directory \'" + \
                             bak_dir + "\'")
-        
+
         # Sort the bak_files according to date.
         bak_files.sort(key=lambda s: [int(v) for v in \
                                 s.split('_')[1].split('.')[0].split('-')], \
                                 reverse=True)
 
         # Set the max tab depth.
-        max_tab_depth = max(map(lambda s: 1 + (len(s.split('_')[0]) / \
-                                                _TAB_WIDTH), bak_files))
-            
+        max_tab_depth = max([1 + (len(s.split('_')[0]) / _TAB_WIDTH) \
+                                                        for s in bak_files])
+
         # Prompt user to select a state to restore.
         options = []
         for fname in bak_files:
@@ -795,7 +795,7 @@ def restore_backup(flags, bak_dir, num=None):
             options += [option]
 
         # Check if prompt can be skipped.
-        if not (num is None):    
+        if not num is None:
             if num >= len(options) or num < 0:
                 raise OpError("Invalid backup index \'" + \
                             num + "\' is outside [0-" + \
@@ -808,7 +808,7 @@ def restore_backup(flags, bak_dir, num=None):
 
         # Set the chosen backup name.
         bak_name = bak_files[num]
-        
+
         # Restore backup.
         try:
             log(flags, "Restoring backup \'" + bak_name + "\'")
