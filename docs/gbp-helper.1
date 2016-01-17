@@ -44,44 +44,50 @@ A summary of options is included below.
 For a complete description, see the Info files.
 .TP
 .B \-h ", " \-\-help
-Shows the help menu.
+Show the help menu.
 .TP
 .B \-V ", " \-\-version
-Shows the current version number.
+Show the current version number.
 .TP
 .B \-v ", " \-\-verbose | \-q ", " \-\-quiet
-Enables verbose or quiet mode.
+Enable verbose or quiet mode.
 .TP
 .B \-c ", " \-\-color
-Enables colored output.
+Enable colored output.
 .TP
 .B \-s ", " \-\-safemode
-Prevents any file changes.
+Prevent any file changes.
 .TP
 .B \-\-config \fICONFIG_FILE\fR
-Sets path to the config file (defaults to ./gbp\-helper).
+Path to the config file (default is ./gbp\-helper).
 
 .SH COMMANDS
 .TP
 .B commit\-release
-Commits the current release to the upstream branch and tag.
-Merges the created upstream with the debian branch.
+Commit the current release to the upstream branch and tag.
+Then merge the created upstream with the debian branch.
 .TP
 .B test\-release
-Prepares a release and builds the package
-but leaves repository unchanged.
+Prepare a release and build the package with test options.
+Reset repository to the previous state. Used to test release changes quickly.
 .TP
 .B update\-changelog
-Updates the changelog for a new release and commits the changes.
+Update the changelog for a new release and commit the changes.
 .TP
 .B build\-pkg
-Builds the latest debian package but does not tag.
+Build the latest debian package with test options without tagging.
 .TP
 .B commit\-pkg
-Builds the latest debian package and tags it.
+Build the latest debian package with standard options and tag.
+The tag version is based on the latest version in debian/changlog.
 .TP
 .B upload
-Uploads the last build to the configured PPA.
+Upload the last build to the configured PPA.
+Will not perform a build.
+.TP
+.B reset
+Reset the repository to a earlier state e.g before a failed command.
+The backups are stored temporarily and are created on all actions.
 .TP
 .B create\-config
-Creates an example config file.
+Create example config file with default values.
