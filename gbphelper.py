@@ -14,7 +14,7 @@ from gbputil import Error, GitError, CommandError, ConfigError, OpError
 from gbputil import log, log_err, log_success, TextType
 from gbputil import exec_cmd
 
-__version__ = "0.2"
+__version__ = "0.3"
 
 ############################## Constants ################################
 #########################################################################
@@ -150,6 +150,8 @@ def prepare_release(conf, flags, sign):
                             "gbp-helper.conf, disabling tag signing.", \
                             TextType.WARNING)
 
+        log(flags, "Merging upstream branch \'" + conf['upstreamBranch'] + \
+                    "\' into debian branch \'" + conf['debianBranch'] + "\'")
         if not flags['safemode']:
             exec_cmd(["gbp", "import-orig", "--no-interactive", "--merge"] + \
                         tag_opt + ["--debian-branch=" + conf['debianBranch'], \
