@@ -10,12 +10,10 @@ import string
 import subprocess
 import re
 import ConfigParser
+import time
+import datetime
 
-############################# Git Tools #################################
-#########################################################################
-### This section defines functions useful for build operations.
-### No functions will print any progress messages.
-### If a failure occurs functions will terminate with GitError.
+############################### Errors ##################################
 #########################################################################
 
 class Error(Exception):
@@ -40,8 +38,8 @@ class GitError(Error):
     """Error raised for git operations.
 
     Attributes:
-        opr  -- attempted operation for which the error occurred
-        msg  -- explanation of the error
+        opr     -- attempted operation for which the error occurred
+        msg     -- explanation of the error
     """
 
     def __init__(self, msg, opr=None):
@@ -52,15 +50,27 @@ class ConfigError(Error):
     """Error raised for config file operations.
 
     Attributes:
-        file -- the config file
-        msg  -- explanation of the error
-        line -- the affected line and number (None if N/A)
+        file_   -- the config file
+        msg     -- explanation of the error
+        line    -- the affected line and number (None if N/A)
     """
 
     def __init__(self, msg, file_=None, line=None):
         self.msg = msg
         self.file = file_
         self.line = line
+
+class OpError(Error):
+    """Error raised for combined operations.
+
+    Attributes:
+        err     -- the causing error
+        msg     -- explanation of the error
+    """
+
+    def __init__(self, err=None, msg=None):
+        self.err = err
+        self.msg = msg
 
 ############################# Git Tools #################################
 #########################################################################
@@ -94,16 +104,19 @@ def switch_branch(branch):
                             branch + "\' exists and all changes " + \
                             "are commited", "checkout")
 
-def get_head_tags(branch):
+def get_head_tags(branch, tag_type):
     """
-    Retrives the tags for the latest commit (HEAD).
+    Retrives the tags for the HEAD commit on form (<tag_type>/<version>).
     Errors will be raised as GitError (underlying errors).
     Returns the list of HEAD tags for the given branch (can be empty).
     """
     switch_branch(branch)
     try:
+        # Get all tags at HEAD.
         head_tags = exec_cmd(["git", "tag", "--points-at", "HEAD"]).rstrip()
-        return head_tags
+        # Find the matching tags.
+        matching_tags = re.findall(r"(?m)^" + tag_type + r"/.*$", head_tags)
+        return matching_tags
     except CommandError:
         raise GitError("The tags pointing at \'" + branch + \
                         "\' HEAD, could not be retrived", "tag")
@@ -111,24 +124,22 @@ def get_head_tags(branch):
 def get_head_tag(branch, tag_type):
     """
     Retrives the latest HEAD tag (<tag_type>/<version>) for a branch.
-    Errors will be raised as GitError (underlying errors or if no tags exists).
+    Errors will be raised as GitError (underlying errors).
+    Returns the name of the latest tag (largest version number).
     """
     # Get the latest HEAD tags.
-    head_tags = get_head_tags(branch)
-
-    # Find the matching tags.
-    matching_tags = re.findall(r"(?m)^" + tag_type + r"/.*$", head_tags)
+    head_tags = get_head_tags(branch, tag_type)
 
     # Make sure atleast some tag follows the right format.
-    if matching_tags:
+    if head_tags:
         # Find the "latest tag"
-        # Assuming format: <pkg_name>/<upstream_version>~<deb_version>
-        matching_tags.sort(key=lambda s: [int(v) for v in \
-                                s.split('/')[1].split('~')[0].split('.')])
-        return matching_tags[0]
+        # Assuming std format: <tag_type>/<version>(-<deb_version>)
+        head_tags.sort(key=lambda s: [int(v) for v in \
+                                s.split('/')[1].split('-')[0].split('.')])
+        return head_tags[0]
     else:
         raise GitError("The HEAD on branch \'" + branch + \
-                            "\' has no tags of type: " + tag_type + "/<version>")
+                        "\' has no tags of type: " + tag_type + "/<version>")
 
 def get_latest_tag(branch, tag_type):
     """
@@ -142,7 +153,8 @@ def get_latest_tag(branch, tag_type):
                                 "--match", tag_type + "/*"]).rstrip()
     except CommandError:
         raise GitError("The branch \'" + branch + \
-                            "\' has no tags of type: " + tag_type + "/<version>")
+                            "\' has no tags of type: " + \
+                            tag_type + "/<version>")
 
 def get_version_from_tag(tag, tag_type):
     """
@@ -150,9 +162,9 @@ def get_version_from_tag(tag, tag_type):
     Errors will be raised as GitError.
     """
     # Get the version part of the tag.
-    tag_version = re.match(r"^" + tag_type + r"/(.*$)", tag)
-    if tag_version:
-        return tag_version.group(1)
+    tag_ver = re.match(r"^" + tag_type + r"/(.*$)", tag)
+    if tag_ver:
+        return tag_ver.group(1)
     else:
         raise GitError("A tag version could not be extracted from tag " + \
                             "\'" + tag + "\'")
@@ -209,11 +221,10 @@ def is_working_dir_clean():
     """
     check_git_rep()
     try:
-        exec_cmd(["git", "status", "--porcelain"])
-        return True
+        return exec_cmd(["git", "status", "--porcelain"]).rstrip() == ''
     except CommandError:
-        raise GitError("Could not determine if working directory is clean.", "status")
-    return False
+        raise GitError("Could not determine if working directory is clean.", \
+                        "status")
 
 def get_branch():
     """
@@ -224,7 +235,8 @@ def get_branch():
     try:
         return exec_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"]).rstrip()
     except CommandError:
-        raise GitError("Could not find the name of the current branch", "rev-parse")
+        raise GitError("Could not find the name of the current branch", \
+                        "rev-parse")
 
 def get_head_commit(branch):
     """
@@ -235,7 +247,8 @@ def get_head_commit(branch):
     try:
         return exec_cmd(["git", "rev-parse", "HEAD"]).rstrip()
     except CommandError:
-        raise GitError("Could not find the name of the current branch", "rev-parse")
+        raise GitError("Could not find HEAD commit of branch \'" + \
+                            branch + "\'", "rev-parse")
 
 ## Affecting repository / files.
 
@@ -368,14 +381,14 @@ class TextType(object):
     INIT = ([_TextFormat.BOLD], 1)
     STD = ([], 0)
 
-def _print_format(msg, formats):
+def _print_format(msg, format_):
     """
-    Prints the "msg" to stdout using the specified text formats (TextFormat class).
-    Prints just standard text if no formats are given.
+    Prints the "msg" to stdout using the specified text format
+    (TextFormat class). Prints just standard text if no formats are given.
     """
-    if formats:
+    if format_:
         # Print format codes., message and end code.
-        print string.join(formats) + msg + _ColorCode.ENDC
+        print string.join(format_) + msg + _ColorCode.ENDC
     else:
         print msg
 
@@ -395,8 +408,20 @@ def log(flags, msg, type_=TextType.STD):
 def log_err(flags, error):
     """
     Prints a formatted string from an error of the Error class.
+    - error -- The instance of Error to print.
     """
     log(flags, "\nError:", TextType.ERR)
+    if isinstance(error, OpError):
+        if error.msg:
+            # Print msg if set.
+            log(flags, error.msg, TextType.ERR)
+        if error.err:
+            # Print causing error if set.
+            error = error.err
+        else:
+            return
+
+    # Print standard errors.
     if isinstance(error, GitError):
         if error.opr:
             log(flags, ("The git command \'" + error.opr + "\' failed\n" \
@@ -410,9 +435,11 @@ def log_err(flags, error):
         log(flags, "\nStdErr:\n" + error.stderr, TextType.ERR_EXTRA)
 
     elif isinstance(error, ConfigError):
-        log(flags, ("An error with file: " + error.file + "\n" if error.file else "") + \
-                    ("On line: " + error.line + "\n" if error.line else "") + \
-                    error.msg, TextType.ERR)
+        log(flags, ("An error with file: " + error.file + \
+                    "\n" if error.file else "") + ("On line: " + error.line + \
+                    "\n" if error.line else "") + error.msg, TextType.ERR)
+    else:
+        log(flags, "Unknown type", TextType.ERR)
 
 def log_success(flags):
     """ Prints a success message with appropriate color. """
@@ -496,9 +523,10 @@ def get_config(config_path, template):
 
 def exec_cmd(cmd):
     """
-    Executes a shell command given as a list of the command followed by the arguments.
+    Executes a shell command.
     Errors will be raised as CommandError.
     Returns the command output.
+    - cmd   -- list of the executable followed by the arguments.
     """
     pipe = subprocess.PIPE
     cmd_delimiter = " "
@@ -517,28 +545,68 @@ def exec_cmd(cmd):
         # Success!
         return stdoutput
 
-def clean_dir(flags, dir_path):
+def exec_editor(editor_cmd, _file):
     """
-    Cleans or if not existant creates a directory.
-    Prints progress messages.
+    Opens a shell text editor.
+    - _file   -- File to be opened.
     """
-    remove_dir(flags, dir_path)
-    if not flags['safemode']:
-        os.makedirs(dir_path)
+    try:
+        subprocess.check_call([editor_cmd, _file])
+    except Exception as err:
+        raise CommandError(editor_cmd + " " + _file, err.msg)
 
-def get_file_with_extension(dir_path, extension):
-    """ Retrives the first file matching the given extension or None. """
+def clean_dir(flags, dir_path):
+    """ Cleans or if not existant creates a directory.
+    - dir_path  -- The path of the directory to clean.
+    """
+    if os.path.isdir(dir_path):
+        # Remove all files and directories in the given directory.
+        for file_ in os.listdir(dir_path):
+            if os.path.isdir(file_):
+                remove_dir(flags, file_)
+            else:
+                remove_file(flags, file_)
+    else:
+        # Just create the given directory.
+        mkdirs(flags, dir_path)
+
+def mkdirs(flags, dir_path):
+    """ Creates a directory and required parent directories.
+    - dir_path  -- The path of the directory to create.
+    """
+    # Create directories if neccesary.
+    if not os.path.isdir(dir_path):
+        if not flags['safemode']:
+            os.makedirs(dir_path)
+
+def get_files_with_extension(dir_path, extension):
+    """ Retrives the files matching the given file suffix.
+    - dir_path  -- The path of the directory to create.
+    - extension -- The file suffix to look for.
+    """
+    files = []
     for file_ in os.listdir(dir_path):
         if file_.endswith(extension):
-            return file_
-    return None
+            files += [file_]
+    return files
 
 def remove_dir(flags, dir_path):
-    """ Removes a directory. """
+    """ Removes a directory.
+    - dir_path  -- The path of the directory to remove.
+    """
     if os.path.isdir(dir_path):
         if not flags['safemode']:
             # Remove directory recursively.
             shutil.rmtree(dir_path)
+
+def remove_file(flags, file_path):
+    """ Removes a file.
+    - file_path -- The path of the file to remove.
+    """
+    if os.path.isfile(file_path):
+        if not flags['safemode']:
+            # Remove the file.
+            os.remove(file_path)
 
 def prompt_user_yn(question, default="yes"):
     """
@@ -569,3 +637,188 @@ def prompt_user_yn(question, default="yes"):
         else:
             sys.stdout.write("Please respond with 'yes' or 'no' "
                              "(or 'y' or 'n').\n")
+
+def prompt_user_options(question, options, default=0):
+    """
+    Asks an options based question via raw_input() and returns the choice.
+    Returns index of the chosen option or None if aborted by user.
+    """
+    if default < len(options) and default >= 0:
+        prompt = " [0-" + str(len(options) - 1) + \
+                    " (" + str(default) + ")] or 'a' to abort: "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write("\nOptions:")
+        for (i, option) in enumerate(options):
+            sys.stdout.write("\n(" + str(i) + ") " + option)
+        sys.stdout.write("\n" + question + prompt)
+        choice = raw_input().lower()
+        if choice == '':
+            return default
+        elif choice == 'a':
+            return None
+        elif choice.isdigit() and int(choice) >= 0 and \
+                int(choice) < len(options):
+            return int(choice)
+        else:
+            sys.stdout.write("Please respond with a integer in the range " + \
+                                "[0-" + (len(options) - 1) + "]\n")
+
+
+def prompt_user(prompt):
+    """
+    Prompts the user for input and returns their answer.
+    """
+    sys.stdout.write(prompt)
+    input_ = raw_input()
+    return input_
+
+####################### Comnbined Operations ############################
+#########################################################################
+### This section defines functions combining IO/UI with Git operations.
+### Some functions will print progress messages.
+### If a failure occurs functions will try to reset any persistant operations
+### alreday executed before the error.
+### After the reset is attempted, functions terminates with an OpError.
+#########################################################################
+
+_BAK_FILE_EXT = ".bak.tar.gz"
+_BAK_FILE_DATE_FORMAT = "%Y-%m-%d-%H-%M-%S"
+_BAK_DISP_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+_TAB_WIDTH = 8
+
+def verify_create_head_tag(flags, branch, tag_type, version=None):
+    """
+    Verifies or creates a version tag for a branch HEAD.
+    If tag needs to be created and no version is given,
+    user will be prompted for version.
+    - branch    -- The branch to tag.
+    - tag_type  -- The tag type (<tag_type>/<version>).
+    - version   -- The version to use.
+    Returns the a tuple with version created or found
+    and True if created otherwise False. (<version>, <created>)
+    """
+    try:
+        # Check that atleast one head tag exists.
+        if get_head_tags(branch, tag_type):
+            log(flags, "The HEAD commit on barnch \'" + branch + \
+                "\' is already tagged, skipping tagging")
+            version = get_head_tag_version(branch, tag_type)
+            return (version, tag_type + "/" + version, False)
+        else:
+            log(flags, "The HEAD commit on branch \'" + branch + \
+                            "\' is not tagged correctly")
+            if not version:
+                # Prompt user to tag the HEAD of release branch.
+                raw_ver = prompt_user("Enter release version to tag" +
+                                            ", otherwise leave empty: ")
+                if raw_ver:
+                    version = raw_ver
+                else:
+                    raise OpError(msg="Tagging of HEAD commit on branch " + \
+                                        "\'" + branch + "\' aborted by user")
+
+            # Tag using the given version.
+            if not flags['safemode']:
+                tag = tag_type + "/" + version
+                tag_head(flags, branch, tag)
+            return (version, tag, True)
+    except Error as err:
+        raise OpError(err)
+
+def add_backup(flags, bak_dir, name="unknown"):
+    """
+    Adds a backup of the git repository.
+    - bak_dir   -- The destination directory.
+    - name      -- The name of the backup, replaces '_' with '-'.
+    Returns the name of the created backup file.
+    """
+    try:
+        check_git_rep()
+
+        # Make sure there are no '_' in the name.
+        name.replace('_', '-')
+
+        # Set the path to the new backup file.
+        tar_path = os.path.join(bak_dir, name + "_" + \
+                        time.strftime(_BAK_FILE_DATE_FORMAT) + _BAK_FILE_EXT)
+
+        # Make a safety backup of the current git repository.
+        log(flags, "Creating backup file \'" + tar_path + "\'")
+        if not flags['safemode']:
+            mkdirs(flags, bak_dir)
+            exec_cmd(["tar", "-czf", tar_path, "."])
+
+        return tar_path
+    except Error as err:
+        log(flags, "Could not add backup in \'" + bak_dir + "\'")
+        raise OpError(err)
+
+def restore_backup(flags, bak_dir, num=None):
+    """
+    Tries to restore repository to a saved backup.
+    Will prompt the user for the requested restore point if
+    num is not set.
+    - bak_dir   -- The backup storage directory.
+    - num   -- The index number of the restore point (latest first).
+    """
+    try:
+        check_git_rep()
+
+        # Find all previously backed up states.
+        bak_files = get_files_with_extension(bak_dir, _BAK_FILE_EXT)
+        if not bak_files:
+            raise OpError("No backups exists in directory \'" + \
+                            bak_dir + "\'")
+
+        # Sort the bak_files according to date.
+        bak_files.sort(key=lambda s: [int(v) for v in \
+                                s.split('_')[1].split('.')[0].split('-')], \
+                                reverse=True)
+
+        # Set the max tab depth.
+        max_tab_depth = max([1 + (len(s.split('_')[0]) / _TAB_WIDTH) \
+                                                        for s in bak_files])
+
+        # Prompt user to select a state to restore.
+        options = []
+        for fname in bak_files:
+            option = "\t" + fname.split('_')[0]
+            option += "\t" * (max_tab_depth - len(option) / _TAB_WIDTH)
+            option += datetime.datetime.strptime( \
+                        fname.split('_')[1].split('.')[0], \
+                        _BAK_FILE_DATE_FORMAT).strftime( \
+                            _BAK_DISP_DATE_FORMAT)
+            options += [option]
+
+        # Check if prompt can be skipped.
+        if not num is None:
+            if num >= len(options) or num < 0:
+                raise OpError("Invalid backup index \'" + \
+                            num + "\' is outside [0-" + \
+                            str(len(options) - 1) + "]")
+        else:
+            # Prompt.
+            num = prompt_user_options("Select the backup to restore", options)
+            if num is None:
+                raise OpError(msg="Restore aborted by user")
+
+        # Set the chosen backup name.
+        bak_name = bak_files[num]
+
+        # Restore backup.
+        try:
+            log(flags, "Restoring backup \'" + bak_name + "\'")
+            clean_dir(flags, os.getcwd())
+            if not flags['safemode']:
+                exec_cmd(["tar", "-xf", os.path.join(bak_dir, bak_name)])
+        except Error as err:
+            log(flags, "Restore failed, the backup can be found in \'" + \
+                    bak_dir + "\'", TextType.ERR)
+            raise OpError(err)
+    except GitError as err:
+        log(flags, "Restore could not be completed")
+        raise OpError(err)
