@@ -6,7 +6,6 @@ Contains various io functions for git and packaging.
 import os
 import shutil
 import sys
-import string
 import subprocess
 import re
 import ConfigParser
@@ -388,7 +387,7 @@ def _print_format(msg, format_):
     """
     if format_:
         # Print format codes., message and end code.
-        print string.join(format_) + msg + _ColorCode.ENDC
+        print str.join("", format_) + msg + _ColorCode.ENDC
     else:
         print msg
 
