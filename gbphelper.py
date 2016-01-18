@@ -284,7 +284,7 @@ def upload_pkg(conf, flags):
         raise OpError()
 
     # Check if ppa name is set in config.
-    if not conf['ppaName']:
+    if not conf['ppa']:
         log_err(flags, ConfigError("The value ppaName is not set" + \
                                 " in the config file, aborting upload"))
         raise OpError()
@@ -305,12 +305,12 @@ def upload_pkg(conf, flags):
     if changes_files:
         try:
             if not flags['safemode']:
-                exec_cmd(["dput", "ppa:" + conf['ppaName'], \
+                exec_cmd(["dput", "ppa:" + conf['ppa'], \
                             os.path.join(_BUILD_DIR, changes_files[0])])
         except Error as err:
             log_err(flags, err)
             log(flags, "The package could not be uploaded to ppa:" + \
-                    conf['ppaName'], TextType.ERR)
+                    conf['ppa'], TextType.ERR)
     else:
         log(flags, "Changefile (" + _CHANGES_FILE_EXT + ") not found in " + \
                     "\'" + _BUILD_DIR + "\', aborting upload", TextType.ERR)
