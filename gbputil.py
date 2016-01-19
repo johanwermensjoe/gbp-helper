@@ -18,7 +18,6 @@ import datetime
 class Error(Exception):
     """Base class for exceptions in this module."""
     pass
-
 class CommandError(Error):
     """Error raised when executing a shell command.
 
@@ -29,6 +28,7 @@ class CommandError(Error):
     """
 
     def __init__(self, expr, stdout, stderr):
+        Error.__init__(self)
         self.expr = expr
         self.stdout = stdout
         self.stderr = stderr
@@ -42,6 +42,7 @@ class GitError(Error):
     """
 
     def __init__(self, msg, opr=None):
+        Error.__init__(self)
         self.opr = opr
         self.msg = msg
 
@@ -55,6 +56,7 @@ class ConfigError(Error):
     """
 
     def __init__(self, msg, file_=None, line=None):
+        Error.__init__(self)
         self.msg = msg
         self.file = file_
         self.line = line
@@ -68,6 +70,7 @@ class OpError(Error):
     """
 
     def __init__(self, err=None, msg=None):
+        Error.__init__(self)
         self.err = err
         self.msg = msg
 
@@ -239,7 +242,7 @@ def get_branch():
 
 def get_head_commit(branch):
     """
-    Retrives the name of the current branch.
+    Retrives the name HEAD commit on the given branch.
     Errors will be raised as GitError.
     """
     switch_branch(branch)
@@ -337,7 +340,7 @@ def tag_head(flags, branch, tag):
                         "and may already exist", "tag")
 
 def clean_ignored_files(flags):
-    """ Cleans files matched by a .gitignor file. """
+    """ Cleans files matched by a .gitignore file. """
     try:
         if not flags['safemode']:
             exec_cmd(["git", "clean", "-Xf"])
@@ -712,7 +715,7 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
                             "\' is not tagged correctly")
             if not version:
                 # Prompt user to tag the HEAD of release branch.
-                raw_ver = prompt_user("Enter release version to tag" +
+                raw_ver = prompt_user("Enter release version to tag" + \
                                             ", otherwise leave empty: ")
                 if raw_ver:
                     version = raw_ver
@@ -725,6 +728,70 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
                 tag = tag_type + "/" + version
                 tag_head(flags, branch, tag)
             return (version, tag, True)
+    except Error as err:
+        raise OpError(err)
+
+def create_temp_commit(flags):
+    """
+    Commits any uncommitted changes on the current
+    branch to a temporary commit.
+    - branch    -- The branch to tag.
+    Returns the a tuple with the branch name, commit id and
+    stash name, used to restore the inital state with the
+    'restore_temp_commit' function.
+    If no changes can be commited the stash name is set to 'None'.
+    """
+    try:
+        # Save the current branch
+        current_branch = get_branch()
+        log(flags, "Saving current branch name \'" + current_branch + "\' ")
+
+         # Try to get the HEAD commmit id of the current branch.
+        head_commit = get_head_commit(current_branch)
+
+        # Check for uncommitted changes.
+        if not is_working_dir_clean():
+            log(flags, "Stashing uncommited changes on branch \'" + \
+                        current_branch + "\'")
+            # Save changes to tmp stash.
+            stash_name = "gbp-helper<" + head_commit + ">"
+            stash_changes(flags, stash_name)
+
+            # Apply stash and create a temporary commit.
+            log(flags, "Creating temporary commit on branch \'" + \
+                        current_branch + "\'")
+            apply_stash(flags, current_branch, stash_name, False)
+            commit_changes(flags, "Temp \'" + current_branch + "\' commit.")
+        else:
+            log(flags, "Working directory clean, no commit needed")
+
+        return (current_branch, head_commit, stash_name)
+    except Error as err:
+        raise OpError(err)
+
+def restore_temp_commit(flags, restore_data):
+    """
+    Restores the inital state before a temp commit was created.
+    - restore_data  -- The restore data returned from the
+                        'create_temp_commit' function.
+    """
+    try:
+        # Restore branch.
+        if restore_data[0] != get_branch():
+            log(flags, "Switching active branch to \'" + restore_data[0] + \
+                        "\'")
+            switch_branch(restore_data[0])
+
+        # Check if changes have been stashed (and temporary commit created).
+        if restore_data[2]:
+            log(flags, "Resetting branch \'" + \
+                    restore_data[0] + "\'to commit \'" + \
+                    restore_data[1] + "\'")
+            reset_branch(flags, restore_data[0], restore_data[1])
+
+            log(flags, "Restoring uncommitted changes from stash to " + \
+                    "branch \'" + restore_data[0] + "\'")
+            apply_stash(flags, restore_data[0], restore_data[2], True)
     except Error as err:
         raise OpError(err)
 
@@ -742,8 +809,9 @@ def add_backup(flags, bak_dir, name="unknown"):
         name.replace('_', '-')
 
         # Set the path to the new backup file.
-        tar_path = os.path.join(bak_dir, name + "_" + \
-                        time.strftime(_BAK_FILE_DATE_FORMAT) + _BAK_FILE_EXT)
+        tar_name = name + "_" + time.strftime(_BAK_FILE_DATE_FORMAT) + \
+                        _BAK_FILE_EXT
+        tar_path = os.path.join(bak_dir, tar_name)
 
         # Make a safety backup of the current git repository.
         log(flags, "Creating backup file \'" + tar_path + "\'")
@@ -751,62 +819,68 @@ def add_backup(flags, bak_dir, name="unknown"):
             mkdirs(flags, bak_dir)
             exec_cmd(["tar", "-czf", tar_path, "."])
 
-        return tar_path
+        return tar_name
     except Error as err:
         log(flags, "Could not add backup in \'" + bak_dir + "\'")
         raise OpError(err)
 
-def restore_backup(flags, bak_dir, num=None):
+def restore_backup(flags, bak_dir, num=None, name=None):
     """
     Tries to restore repository to a saved backup.
     Will prompt the user for the requested restore point if
     num is not set.
     - bak_dir   -- The backup storage directory.
-    - num   -- The index number of the restore point (latest first).
+    - num       -- The index number of the restore point (latest first).
     """
     try:
         check_git_rep()
 
-        # Find all previously backed up states.
-        bak_files = get_files_with_extension(bak_dir, _BAK_FILE_EXT)
-        if not bak_files:
-            raise OpError("No backups exists in directory \'" + \
-                            bak_dir + "\'")
+        # If name is set just restore that file.
+        if name:
+            bak_name = name
 
-        # Sort the bak_files according to date.
-        bak_files.sort(key=lambda s: [int(v) for v in \
+        else:
+            # Find all previously backed up states.
+            bak_files = get_files_with_extension(bak_dir, _BAK_FILE_EXT)
+            if not bak_files:
+                raise OpError("No backups exists in directory \'" + \
+                                bak_dir + "\'")
+
+            # Sort the bak_files according to date.
+            bak_files.sort(key=lambda s: [int(v) for v in \
                                 s.split('_')[1].split('.')[0].split('-')], \
                                 reverse=True)
 
-        # Set the max tab depth.
-        max_tab_depth = max([1 + (len(s.split('_')[0]) / _TAB_WIDTH) \
+            # Set the max tab depth.
+            max_tab_depth = max([1 + (len(s.split('_')[0]) / _TAB_WIDTH) \
                                                         for s in bak_files])
 
-        # Prompt user to select a state to restore.
-        options = []
-        for fname in bak_files:
-            option = "\t" + fname.split('_')[0]
-            option += "\t" * (max_tab_depth - len(option) / _TAB_WIDTH)
-            option += datetime.datetime.strptime( \
-                        fname.split('_')[1].split('.')[0], \
-                        _BAK_FILE_DATE_FORMAT).strftime( \
-                            _BAK_DISP_DATE_FORMAT)
-            options += [option]
+            # Prompt user to select a state to restore.
+            options = []
+            for fname in bak_files:
+                option = "\t" + fname.split('_')[0]
+                option += "\t" * (max_tab_depth - len(option) / _TAB_WIDTH)
+                option += datetime.datetime.strptime( \
+                            fname.split('_')[1].split('.')[0], \
+                            _BAK_FILE_DATE_FORMAT).strftime( \
+                                _BAK_DISP_DATE_FORMAT)
+                options += [option]
 
-        # Check if prompt can be skipped.
-        if not num is None:
-            if num >= len(options) or num < 0:
-                raise OpError("Invalid backup index \'" + \
-                            num + "\' is outside [0-" + \
-                            str(len(options) - 1) + "]")
-        else:
-            # Prompt.
-            num = prompt_user_options("Select the backup to restore", options)
-            if num is None:
-                raise OpError(msg="Restore aborted by user")
+            # Check if prompt can be skipped.
+            if not num is None:
+                if num >= len(options) or num < 0:
+                    raise OpError("Invalid backup index \'" + \
+                                num + "\' is outside [0-" + \
+                                str(len(options) - 1) + "]")
+            else:
+                # Prompt.
+                num = prompt_user_options("Select the backup to restore", \
+                                            options)
+                if num is None:
+                    raise OpError(msg="Restore aborted by user")
 
-        # Set the chosen backup name.
-        bak_name = bak_files[num]
+            # Set the chosen backup name.
+            bak_name = bak_files[num]
 
         # Restore backup.
         try:
