@@ -655,7 +655,7 @@ def parse_args_and_execute():
         help='enable colored output')
     parser.add_argument('-s', '--safemode', action='store_true', \
         help='prevent any file changes')
-    parser.add_argument('-r', '--norestore', action='store_true', \
+    parser.add_argument('-n', '--norestore', action='store_true', \
         help='prevent auto restore on command failure')
     parser.add_argument('--config', default=_DEFAULT_CONFIG_PATH, \
         help='path to the gbp-helper.conf file')
