@@ -602,13 +602,28 @@ def remove_dir(flags, dir_path):
             shutil.rmtree(dir_path)
 
 def remove_file(flags, file_path):
-    """ Removes a file.
+    """ 
+    Removes a file.
     - file_path -- The path of the file to remove.
     """
     if os.path.isfile(file_path):
         if not flags['safemode']:
             # Remove the file.
             os.remove(file_path)
+
+def prompt_user_input(prompt, allow_empty=False):
+    """
+    Promts the user for input and returns it.
+    A space is added after the prompt automatically.
+    - allow_empty -- Set to 'True' to allow empty string as input
+    """
+    while True:
+        sys.stdout.write(prompt + " ")
+        input_ = raw_input().lower()
+        if allow_empty or not input_ == '':
+            return input_
+        else:
+            sys.stdout.write("Please respond with a non-empty string.\n")
 
 def prompt_user_yn(question, default="yes"):
     """
@@ -668,15 +683,6 @@ def prompt_user_options(question, options, default=0):
             sys.stdout.write("Please respond with a integer in the range " + \
                                 "[0-" + (len(options) - 1) + "]\n")
 
-
-def prompt_user(prompt):
-    """
-    Prompts the user for input and returns their answer.
-    """
-    sys.stdout.write(prompt)
-    input_ = raw_input()
-    return input_
-
 ####################### Comnbined Operations ############################
 #########################################################################
 ### This section defines functions combining IO/UI with Git operations.
@@ -715,8 +721,8 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
                             "\' is not tagged correctly")
             if not version:
                 # Prompt user to tag the HEAD of release branch.
-                raw_ver = prompt_user("Enter release version to tag" + \
-                                            ", otherwise leave empty: ")
+                raw_ver = prompt_user_input("Enter release version to tag" + \
+                                            ", otherwise leave empty:")
                 if raw_ver:
                     version = raw_ver
                 else:
