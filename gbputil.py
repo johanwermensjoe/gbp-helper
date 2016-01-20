@@ -565,9 +565,9 @@ def clean_dir(flags, dir_path):
         # Remove all files and directories in the given directory.
         for file_ in os.listdir(dir_path):
             if os.path.isdir(file_):
-                remove_dir(flags, file_)
+                remove_dir(flags, os.path.join(dir_path, file_))
             else:
-                remove_file(flags, file_)
+                remove_file(flags, os.path.join(dir_path, file_))
     else:
         # Just create the given directory.
         mkdirs(flags, dir_path)
@@ -726,6 +726,8 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
             # Tag using the given version.
             if not flags['safemode']:
                 tag = tag_type + "/" + version
+                log(flags, "Tagging HEAD commit on branch \'" + branch + \
+                            "\' as \'" + tag + "\'")
                 tag_head(flags, branch, tag)
             return (version, tag, True)
     except Error as err:

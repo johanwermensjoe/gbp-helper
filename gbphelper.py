@@ -598,13 +598,13 @@ def exec_action(flags, action, conf, config_path, bak_dir):
         if action == 'create-config':
             create_config(flags, config_path)
 
-        # Prepare release.
-        elif action == 'commit-release':
-            commit_release(conf, flags, True)
-
         # Build release without commiting.
         elif action == 'test-release':
             test_release(conf, flags)
+
+        # Prepare release.
+        elif action == 'commit-release':
+            commit_release(conf, flags, True)
 
         # Updates the changelog with set options and commits the changes.
         elif action == 'update-changelog':
@@ -615,7 +615,7 @@ def exec_action(flags, action, conf, config_path, bak_dir):
         elif action == 'test-pkg':
             build_pkg(conf, flags, conf['testBuildFlags'])
 
-        # Build and commit package.
+        # Build a signed package and tag commit.
         elif action == 'commit-pkg':
             build_pkg(conf, flags, conf['buildFlags'], tag=True, \
                         sign_tag=True, sign_changes=True, sign_source=True)
@@ -624,7 +624,7 @@ def exec_action(flags, action, conf, config_path, bak_dir):
         elif action == 'upload-pkg':
             upload_pkg(conf, flags)
 
-        # Build and commit package.
+        # Restore repository to an earlier state.
         elif action == 'reset':
             reset_repository(flags, bak_dir)
 
@@ -641,7 +641,7 @@ def parse_args_and_execute():
     """ Parses arguments and executes requested operations. """
 
     parser = argparse.ArgumentParser( \
-                description='Maintain debian packeges with git and gbp.')
+                description='Maintain debian packages with git and gbp.')
 
     # Optional arguments.
     parser.add_argument('-V', '--version', action='store_true', \
