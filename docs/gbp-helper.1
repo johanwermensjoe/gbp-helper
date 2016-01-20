@@ -66,7 +66,7 @@ Path to the config file (default is ./gbp\-helper).
 
 .SH COMMANDS
 .TP
-.B test\-release
+.B test\-pkg
 Prepare a release and build the package with test options.
 Reset repository to the previous state. Used to test release changes quickly.
 .TP
@@ -77,10 +77,10 @@ Then merge the created upstream with the debian branch.
 .B update\-changelog
 Update the changelog for a new release and commit the changes.
 .TP
-.B test\-pkg
+.B test\-build
 Build the latest debian package with test options without tagging.
 .TP
-.B commit\-pkg
+.B commit\-build
 Build the latest debian package with standard options and tag.
 The tag version is based on the latest version in debian/changelog.
 .TP

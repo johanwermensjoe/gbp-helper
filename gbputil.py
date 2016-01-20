@@ -765,6 +765,7 @@ def create_temp_commit(flags):
             apply_stash(flags, current_branch, stash_name, False)
             commit_changes(flags, "Temp \'" + current_branch + "\' commit.")
         else:
+            stash_name = None
             log(flags, "Working directory clean, no commit needed")
 
         return (current_branch, head_commit, stash_name)
