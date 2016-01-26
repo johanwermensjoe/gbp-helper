@@ -220,10 +220,11 @@ def get_next_version(version):
     """
     try:
         # Split if the version has a 1.0-0ppa1 form.
-        base_part = version.split('~', 1)[0]
+        base_part = version.split('~', 1)
         ver_part = base_part[0].split('.')
         ver_part[-1] = str(int(ver_part[-1]) + 1)
-        return '.'.join(ver_part) + base_part[1] if len(base_part) > 1 else ""
+        return '.'.join(ver_part) + \
+                (("-" + base_part[1]) if len(base_part) > 1 else "")
     except Error:
         raise GitError("Version \'" + version + "\' could not be incremented")
 
@@ -594,9 +595,16 @@ def clean_dir(flags, dir_path):
     - dir_path  -- The path of the directory to clean.
     """
     # Remove all files and directories in the given directory.
-    remove_dir(flags, dir_path)
-    # Just create the given directory.
-    mkdirs(flags, dir_path)
+    if os.path.isdir(dir_path):
+        # Remove all files and directories in the given directory.
+        for file_ in os.listdir(dir_path):
+            if os.path.isdir(file_):
+                remove_dir(flags, file_)
+            else:
+                remove_file(flags, file_)
+    else:
+        # Just create the given directory.
+        mkdirs(flags, dir_path)
 
 def mkdirs(flags, dir_path):
     """ Creates a directory and required parent directories.

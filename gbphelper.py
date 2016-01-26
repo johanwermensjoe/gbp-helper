@@ -526,7 +526,7 @@ def execute(flags, args):
             quit()
 
     # Execute initiation phase.
-    init_data = exec_init(flags, action, args.config)
+    init_data = exec_init(flags, action, rep_action, args.config)
 
     # Execute action if allowed.
     if init_data[0]:
@@ -535,16 +535,16 @@ def execute(flags, args):
 
     # Force a backup restore if command has failed.
     if not action_ok:
-        log(flags, "An error occured during action \'" + action + \
-                    "\'", TextType.INFO)
+        log(flags, "\nError recovery for action \'" + action + \
+                    "\':", TextType.INIT)
         if args.norestore:
-            log(flags, "Restore has been disabled (-r), " + \
+            log(flags, "Restore has been disabled (-n), " + \
                 "try \'gbp-helper reset\' to restore repository to " + \
                 "previous state", TextType.INFO)
         else:
+            # Disable branche restore.
+            rep_action = False
             try:
-                log(flags, "Restoring repository to previous state", \
-                        TextType.INFO)
                 gbputil.restore_backup(flags, bak_dir, name=bak_name)
             except OpError:
                 log(flags, "Restore failed, " + \
@@ -575,7 +575,7 @@ def exec_options(args, flags):
     if flags['safemode']:
         log(flags, "Safemode enabled, not changing any files", TextType.INFO)
 
-def exec_init(flags, action, config_path):
+def exec_init(flags, action, rep_action, config_path):
     """
     Executes the initiation phase.
     Returns a tuple of:
@@ -591,8 +591,7 @@ def exec_init(flags, action, config_path):
     restore_data = None
 
     # Prepare if a subcommand is used.
-    if action and action != 'create-config' and \
-            action != 'clone':
+    if action and rep_action:
         # Try to clean current branch from ignored files.
         try:
             log(flags, "Cleaning ignored files from working directory.")
