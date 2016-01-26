@@ -585,9 +585,12 @@ def exec_init(flags, action, config_path):
         - repository backup name
     """
 
-    # Prepare if a subcommand is used.
+    # Initialize return values.
     changes_committed = False
     conf = None
+    restore_data = None
+
+    # Prepare if a subcommand is used.
     if action and action != 'create-config' and \
             action != 'clone':
         # Try to clean current branch from ignored files.
