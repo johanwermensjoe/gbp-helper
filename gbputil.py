@@ -619,6 +619,7 @@ def get_files_with_extension(dir_path, extension):
     """ Retrives the files matching the given file suffix.
     - dir_path  -- The path of the directory search reqursivley.
     - extension -- The file suffix to look for.
+    Returns the list of files with full paths based on dir_path.
     """
     ext_files = []
     for path, _, files in os.walk(dir_path):

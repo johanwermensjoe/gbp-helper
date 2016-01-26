@@ -297,14 +297,14 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
                     "--git-export-dir=" + pkg_build_dir, "--git-builder=" + \
                     build_cmd])
 
-            changes_files = gbputil.get_files_with_extension(pkg_build_dir, \
+            changes_paths = gbputil.get_files_with_extension(pkg_build_dir, \
                                                             _CHANGES_FILE_EXT)
-            if changes_files:
+            if changes_paths:
                 # Let lintian fail without quitting.
                 try:
                     log(flags, "Running Lintian...", TextType.INFO)
                     log(flags, exec_cmd(["lintian", "-Iv", "--color", "auto", \
-                        os.path.join(pkg_build_dir, changes_files[0])]))
+                                            changes_paths[0]]))
                     log(flags, "Lintian Done", TextType.INFO)
                 except CommandError as err:
                     if err.stderr:
@@ -398,22 +398,21 @@ def upload_pkg(conf, flags):
 
     # Set the name of the .changes file and upload.
     pkg_build_dir = os.path.join(_BUILD_DIR, conf['packageName'])
-    changes_files = gbputil.get_files_with_extension(pkg_build_dir, \
+    changes_paths = gbputil.get_files_with_extension(pkg_build_dir, \
                                                     _CHANGES_FILE_EXT)
 
     # Sort the files on version.
-    changes_files.sort(cmp=gbputil.compare_versions, \
+    changes_paths.sort(cmp=gbputil.compare_versions, \
                     key=lambda s: [os.path.basename(s).split('_')[1]])
 
-    if changes_files:
+    if changes_paths:
         # Ask user for confirmation
         if not gbputil.prompt_user_yn("Upload the latest build (version \'" + \
-                    os.path.basename(changes_files[0]).split('_')[1] + "\')?"):
+                    os.path.basename(paths_files[0]).split('_')[1] + "\')?"):
             raise OpError()
         try:
             if not flags['safemode']:
-                exec_cmd(["dput", "ppa:" + conf['ppa'], \
-                            os.path.join(pkg_build_dir, changes_files[0])])
+                exec_cmd(["dput", "ppa:" + conf['ppa'], changes_paths[0]])
         except Error as err:
             log_err(flags, err)
             log(flags, "The package could not be uploaded to ppa:" + \
