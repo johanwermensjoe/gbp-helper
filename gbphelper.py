@@ -246,7 +246,14 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
     log(flags, "Switching to debian branch \'" + conf['debianBranch'] + "\'")
     gbputil.switch_branch(conf['debianBranch'])
 
-    pkg_build_dir = os.path.join(_BUILD_DIR, conf['packageName'])
+    try:
+        version = gbputil.exec_cmd(["dpkg-parsechangelog", \
+                                    "--show-field", "Version"])
+    except Error as err:
+        log_err(flags, err)
+        raise OpError()
+
+    pkg_build_dir = os.path.join(_BUILD_DIR, conf['packageName'], version)
     log(flags, "Cleaning old build files in \'" + pkg_build_dir + "\'")
     gbputil.clean_dir(flags, pkg_build_dir)
 
@@ -390,26 +397,20 @@ def upload_pkg(conf, flags):
                                 " in the config file, aborting upload"))
         raise OpError()
 
-    # Make sure that the latest debian commit is tagged.
-    try:
-        version = gbputil.get_head_tag_version(conf['debianBranch'], \
-                                        conf['debianTagType'])
-    except Error as err:
-        log_err(flags, err)
-        log(flags, "The latest debian commit isn't porperly tagged, " + \
-                        "run gbp-helper -b", TextType.ERR)
-        raise OpError()
-
-    # Ask user for confirmation
-    if not gbputil.prompt_user_yn("Upload the latest build (version \'" + \
-                                    version + "\')?"):
-        raise OpError()
-
     # Set the name of the .changes file and upload.
     pkg_build_dir = os.path.join(_BUILD_DIR, conf['packageName'])
     changes_files = gbputil.get_files_with_extension(pkg_build_dir, \
                                                     _CHANGES_FILE_EXT)
+
+    # Sort the files on version.
+    changes_files.sort(cmp=gbputil.compare_versions, \
+                    key=lambda s: [os.path.basename(s).split('_')[1]])
+
     if changes_files:
+        # Ask user for confirmation
+        if not gbputil.prompt_user_yn("Upload the latest build (version \'" + \
+                    os.path.basename(changes_files[0]).split('_')[1] + "\')?"):
+            raise OpError()
         try:
             if not flags['safemode']:
                 exec_cmd(["dput", "ppa:" + conf['ppa'], \
@@ -586,6 +587,7 @@ def exec_init(flags, action, config_path):
 
     # Prepare if a subcommand is used.
     changes_committed = False
+    conf = None
     if action and action != 'create-config' and \
             action != 'clone':
         # Try to clean current branch from ignored files.
@@ -608,7 +610,6 @@ def exec_init(flags, action, config_path):
 
         # Pre load config, initialize to 'None' for no-config action.
         log(flags, "Reading config file", TextType.INFO)
-        conf = None
         try:
             # Switch branch to master before trying to read config.
             gbputil.switch_branch(_MASTER_BRANCH)

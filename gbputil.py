@@ -193,16 +193,25 @@ def get_latest_tag_version(branch, tag_type):
 
 def is_version_lt(ver1, ver2):
     """ Checks whether the first version string is greater than second. """
-    return ver1 != ver2 and is_version_lte(ver1, ver2)
+    return compare_versions(ver1, ver2) < 0
 
 def is_version_lte(ver1, ver2):
     """
     Checks whether the first version string
     is less than or equal to the second.
     """
-    versions = [ver1, ver2]
-    versions.sort(key=lambda s: [int(v) for v in s.split('~')[0].split('.')])
-    return versions[0] == ver1
+    return compare_versions(ver1, ver2) <= 0
+
+def compare_versions(ver1, ver2):
+    """ Compares two versions. """
+    ver_s = [ver1, ver2]
+    ver_s.sort(key=lambda s: re.findall(r'''\d+''', s))
+    if ver1 == ver2:
+        return 0
+    elif ver_s[0] == ver1:
+        return -1
+    else:
+        return 1
 
 def get_next_version(version):
     """
@@ -210,9 +219,11 @@ def get_next_version(version):
     Errors will be raised as GitError.
     """
     try:
-        ver_part = version.split('.')
+        # Split if the version has a 1.0-0ppa1 form.
+        base_part = version.split('~', 1)[0]
+        ver_part = base_part[0].split('.')
         ver_part[-1] = str(int(ver_part[-1]) + 1)
-        return '.'.join(ver_part)
+        return '.'.join(ver_part) + base_part[1] if len(base_part) > 1 else ""
     except Error:
         raise GitError("Version \'" + version + "\' could not be incremented")
 
@@ -288,9 +299,9 @@ def stash_changes(flags, name=None):
     try:
         if not flags['safemode']:
             if name:
-                exec_cmd(["git", "stash", "save", name])
+                exec_cmd(["git", "stash", "save", "--include-untracked", name])
             else:
-                exec_cmd(["git", "stash"])
+                exec_cmd(["git", "stash", "save", "--include-untracked"])
     except CommandError:
         raise GitError("Could not stash uncommitted changes", "stash")
 
@@ -596,14 +607,15 @@ def mkdirs(flags, dir_path):
 
 def get_files_with_extension(dir_path, extension):
     """ Retrives the files matching the given file suffix.
-    - dir_path  -- The path of the directory to create.
+    - dir_path  -- The path of the directory search reqursivley.
     - extension -- The file suffix to look for.
     """
-    files = []
-    for file_ in os.listdir(dir_path):
-        if file_.endswith(extension):
-            files += [file_]
-    return files
+    ext_files = []
+    for path, _, files in os.walk(dir_path):
+        for file_ in files:
+            if file_.endswith(extension):
+                ext_files += [os.path.join(path, file_)]
+    return ext_files
 
 def remove_dir(flags, dir_path):
     """ Removes a directory.
