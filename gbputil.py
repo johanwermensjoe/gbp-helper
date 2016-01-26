@@ -314,10 +314,10 @@ def apply_stash(flags, branch, name=None, drop=True):
     try:
         if not flags['safemode']:
             if name:
-                exec_cmd(["git", "stash", "apply", "stash^/{\"" + \
+                exec_cmd(["git", "stash", "apply", "stash^{/\"" + \
                             name + "\"}"])
                 if drop:
-                    exec_cmd(["git", "stash", "drop", "stash^/{\"" + \
+                    exec_cmd(["git", "stash", "drop", "stash^{/\"" + \
                             name + "\"}"])
             else:
                 exec_cmd(["git", "stash", "apply"])
@@ -326,7 +326,7 @@ def apply_stash(flags, branch, name=None, drop=True):
 
     except CommandError:
         raise GitError("Could not apply stashed changes" + \
-                        (" (stash/" + name + ")" if name else ""), "stash")
+                        (" (" + name + ")" if name else ""), "stash")
 
 def delete_tag(flags, tag):
     """
