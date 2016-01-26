@@ -347,6 +347,13 @@ def clean_ignored_files(flags):
     except CommandError:
         raise GitError("Could not clean ignored files", "clean")
 
+def get_rep_name_from_url(url):
+    """ Exracts a gitrepositori name from a remote URL. """
+    match = re.match(r'''(?i)^.*/(.*)\.git$''', url)
+    if match:
+        return match.group(1)
+    else:
+        return None
 ########################### Logging Tools ###############################
 #########################################################################
 ### This section defines functions useful for logging.
@@ -516,6 +523,18 @@ def get_config(config_path, template):
 
     return conf
 
+def get_config_default(key, template):
+    """
+    Returns the default configuration value for the given key.
+    - key       -- the key
+    - template  -- the config template
+    """
+    for section in template:
+        for entry in section[1]:
+            if key == entry[0]:
+                return entry[1]
+    return None
+
 ########################### IO/UI Tools #################################
 #########################################################################
 ### This section defines functions useful for file and ui operations.
@@ -561,16 +580,10 @@ def clean_dir(flags, dir_path):
     """ Cleans or if not existant creates a directory.
     - dir_path  -- The path of the directory to clean.
     """
-    if os.path.isdir(dir_path):
-        # Remove all files and directories in the given directory.
-        for file_ in os.listdir(dir_path):
-            if os.path.isdir(file_):
-                remove_dir(flags, os.path.join(dir_path, file_))
-            else:
-                remove_file(flags, os.path.join(dir_path, file_))
-    else:
-        # Just create the given directory.
-        mkdirs(flags, dir_path)
+    # Remove all files and directories in the given directory.
+    remove_dir(flags, dir_path)
+    # Just create the given directory.
+    mkdirs(flags, dir_path)
 
 def mkdirs(flags, dir_path):
     """ Creates a directory and required parent directories.
@@ -602,7 +615,7 @@ def remove_dir(flags, dir_path):
             shutil.rmtree(dir_path)
 
 def remove_file(flags, file_path):
-    """ 
+    """
     Removes a file.
     - file_path -- The path of the file to remove.
     """
@@ -611,14 +624,44 @@ def remove_file(flags, file_path):
             # Remove the file.
             os.remove(file_path)
 
-def prompt_user_input(prompt, allow_empty=False):
+def move_file_dir(flags, old_path, new_path):
+    """ Moves a file or a dirctory. """
+    if old_path != new_path:
+        # Calculate the parent directory paths.
+        old_dir = os.path.dirname(old_path)
+        new_dir = os.path.dirname(new_path)
+
+        # Check if the file/dir is being moved or just renamed.
+        if old_dir != new_dir:
+            if not flags['safemode']:
+                # Make sure parent directory exists.
+                if not os.path.isdir(new_dir):
+                    os.makedirs(new_dir)
+        else:
+            # Rename
+            if not flags['safemode']:
+                # If only case differs, do temp move (Samba compability).
+                if old_path.lower() == new_path.lower():
+                    os.rename(old_path, old_path + "_temp")
+                    old_path += "_temp"
+                # Do the move/rename.
+                os.rename(old_path, new_path)
+
+def prompt_user_input(prompt, allow_empty=False, default=None):
     """
     Promts the user for input and returns it.
     A space is added after the prompt automatically.
     - allow_empty -- Set to 'True' to allow empty string as input
+    - default     -- Set to the default answer if left empty
     """
+    prompt_add = ": "
+    if allow_empty:
+        if not default:
+            prompt_add = " (empty to skip): "
+        else:
+            prompt_add = " [" + default + "]: "
     while True:
-        sys.stdout.write(prompt + " ")
+        sys.stdout.write(prompt + prompt_add)
         input_ = raw_input().lower()
         if allow_empty or not input_ == '':
             return input_
@@ -722,7 +765,7 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
             if not version:
                 # Prompt user to tag the HEAD of release branch.
                 raw_ver = prompt_user_input("Enter release version to tag" + \
-                                            ", otherwise leave empty:")
+                                            ", otherwise leave empty", True)
                 if raw_ver:
                     version = raw_ver
                 else:

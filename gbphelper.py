@@ -66,7 +66,7 @@ def test_pkg(conf, flags):
     but reverts all changes after, leaving the repository unchanged.
     """
     log(flags, "\nTesting package", TextType.INFO)
-    
+
     try:
         # Get the tagged version from the release branch.
         latest_release_ver = gbputil.get_latest_tag_version( \
@@ -127,7 +127,7 @@ def commit_release(conf, flags, sign):
     Returns the tag name on success.
     """
     log(flags, "\nCommitting release", TextType.INFO)
-    
+
     # Constants
     tmp_dir = os.path.join(_TMP_DIR, conf['packageName'], _TMP_TAR_SUBDIR)
     archive_path = os.path.join(tmp_dir, conf['releaseBranch'] + \
@@ -228,7 +228,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
     - sign_source       -- Set to True to sign the .source file.
     """
     log(flags, "\nBuilding package", TextType.INFO)
-    
+
     # Check if treeish is used for upstream.
     if not upstream_treeish:
         try:
@@ -246,8 +246,9 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
     log(flags, "Switching to debian branch \'" + conf['debianBranch'] + "\'")
     gbputil.switch_branch(conf['debianBranch'])
 
-    log(flags, "Cleaning old build files in \'" + _BUILD_DIR + "\'")
-    gbputil.clean_dir(flags, _BUILD_DIR)
+    pkg_build_dir = os.path.join(_BUILD_DIR, conf['packageName'])
+    log(flags, "Cleaning old build files in \'" + pkg_build_dir + "\'")
+    gbputil.clean_dir(flags, pkg_build_dir)
 
     # Check if tag should be created.
     tag_opt = ["--git-tag"] if tag else []
@@ -287,17 +288,17 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
             exec_cmd(["gbp", "buildpackage"] + tag_opt + upstream_opt + \
                     ["--git-debian-branch=" + conf['debianBranch'], \
                     "--git-upstream-branch=" + conf['upstreamBranch'], \
-                    "--git-export-dir=" + _BUILD_DIR, "--git-builder=" + \
+                    "--git-export-dir=" + pkg_build_dir, "--git-builder=" + \
                     build_cmd])
 
-            changes_files = gbputil.get_files_with_extension(_BUILD_DIR, \
+            changes_files = gbputil.get_files_with_extension(pkg_build_dir, \
                                                             _CHANGES_FILE_EXT)
             if changes_files:
                 # Let lintian fail without quitting.
                 try:
                     log(flags, "Running Lintian...", TextType.INFO)
                     log(flags, exec_cmd(["lintian", "-Iv", "--color", "auto", \
-                        os.path.join(_BUILD_DIR, changes_files[0])]).rstrip())
+                        os.path.join(pkg_build_dir, changes_files[0])]).rstrip())
                     log(flags, "Lintian Done", TextType.INFO)
                 except CommandError as err:
                     if err.stderr:
@@ -310,7 +311,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
                                 TextType.WARNING)
             else:
                 log(flags, "Changes file (" + _CHANGES_FILE_EXT + \
-                        ") not found in \'" + _BUILD_DIR + \
+                        ") not found in \'" + pkg_build_dir + \
                         "\', skipping lintian", TextType.WARNING)
     except Error as err:
         log_err(flags, err)
@@ -329,7 +330,7 @@ def update_changelog(conf, flags, version=None, editor=False, \
     - release   -- Set to True will prepare release with review in editor.
     """
     log(flags, "\nUpdating changelog", TextType.INFO)
-    
+
     # Build and without tagging and do linthian checks.
     log(flags, "Updating changelog to new version")
     if not version:
@@ -382,7 +383,7 @@ def upload_pkg(conf, flags):
     Uploads the latest build to the ppa set in the config file.
     """
     log(flags, "\nUploading package", TextType.INFO)
-    
+
     # Check if ppa name is set in config.
     if not conf['ppa']:
         log_err(flags, ConfigError("The value ppaName is not set" + \
@@ -405,44 +406,35 @@ def upload_pkg(conf, flags):
         raise OpError()
 
     # Set the name of the .changes file and upload.
-    changes_files = gbputil.get_files_with_extension(_BUILD_DIR, \
+    pkg_build_dir = os.path.join(_BUILD_DIR, conf['packageName'])
+    changes_files = gbputil.get_files_with_extension(pkg_build_dir, \
                                                     _CHANGES_FILE_EXT)
     if changes_files:
         try:
             if not flags['safemode']:
                 exec_cmd(["dput", "ppa:" + conf['ppa'], \
-                            os.path.join(_BUILD_DIR, changes_files[0])])
+                            os.path.join(pkg_build_dir, changes_files[0])])
         except Error as err:
             log_err(flags, err)
             log(flags, "The package could not be uploaded to ppa:" + \
                     conf['ppa'], TextType.ERR)
     else:
         log(flags, "Changefile (" + _CHANGES_FILE_EXT + ") not found in " + \
-                    "\'" + _BUILD_DIR + "\', aborting upload", TextType.ERR)
+                    "\'" + pkg_build_dir + "\', aborting upload", TextType.ERR)
         raise OpError()
 
     # Print success message.
     log_success(flags)
 
-def reset_repository(flags): #TODO
+def reset_repository(flags, bak_dir):
     """
     Reset the repository to an earlier backed up state.
     - bak_dir   -- The backup storage directory.
     """
     log(flags, "\nResetting repository", TextType.INFO)
-    
-    try:
-        # Prompt user for url.
-        url = gbputil.prompt_user_input("Input the URL of " + \
-                                        "the remote repository:")
-        # Clone repository
-        if not flags['safemode']:
-            exec_cmd(["gbp", "clone", "--debian-branch=" + \
-                    conf['debianBranch'], "--upstream-branch=" + \
-                    conf['upstreamBranch'], "--all", url)
 
-        # Move the cloned repository into a new folder.
-        #TODO
+    try:
+        gbputil.restore_backup(flags, bak_dir)
     except Error as err:
         log_err(flags, err)
         raise OpError()
@@ -453,10 +445,35 @@ def reset_repository(flags): #TODO
 def clone_repository(flags):
     """ Clones a remote repository and creates the proper branches. """
     log(flags, "\nCloning remoterepository", TextType.INFO)
-    
+
     try:
-        log(flags, "Config file is written to " + config_path)
-        gbputil.create_ex_config(flags, config_path, _CONFIG)
+        # Prompt user for url.
+        url = gbputil.prompt_user_input("Input the URL of " + \
+                                        "the remote repository")
+
+        # Prompt user for the name of the debian branch.
+        debian_branch = gbputil.prompt_user_input("Input the name of " + \
+                                        "the debian branch", True, \
+                                        gbputil.get_config_default( \
+                                            'debianBranch', _CONFIG))
+
+        # Prompt user for the name of the upstream branch.
+        upstream_branch = gbputil.prompt_user_input("Input the name of " + \
+                                        "the upstream branch", True, \
+                                        gbputil.get_config_default( \
+                                            'upstreamBranch', _CONFIG))
+
+        # Clone repository
+        if not flags['safemode']:
+            exec_cmd(["gbp", "clone", "--debian-branch=" + \
+                    debian_branch, "--upstream-branch=" + \
+                    upstream_branch, "--all", url])
+
+        # Move into the cloned repository.
+        rep_name = gbputil.get_rep_name_from_url(url)
+        os.chdir(rep_name)
+        gbputil.switch_branch(_MASTER_BRANCH)
+        create_config(flags, _DEFAULT_CONFIG_PATH)
     except Error as err:
         log_err(flags, err)
         quit()
@@ -467,7 +484,7 @@ def clone_repository(flags):
 def create_config(flags, config_path):
     """ Creates example config. """
     log(flags, "\nCreating example config file", TextType.INFO)
-    
+
     try:
         log(flags, "Config file is written to " + config_path)
         gbputil.create_ex_config(flags, config_path, _CONFIG)
@@ -489,6 +506,8 @@ def execute(flags, args):
     # Switch to target directory.
     os.chdir(args.dir)
 
+    action = args.action
+
     # Determine if action is repository based.
     rep_action = not action == 'reset' and \
                     not action == 'clone' and \
@@ -500,22 +519,22 @@ def execute(flags, args):
     if rep_action:
         try:
             log(flags, "Saving backup of repository", TextType.INFO)
-            bak_name = gbputil.add_backup(flags, bak_dir, args.action)
+            bak_name = gbputil.add_backup(flags, bak_dir, action)
         except OpError as err:
             log_err(flags, err)
             quit()
 
     # Execute initiation phase.
-    init_data = exec_init(flags, args.action, args.config, rep_action)
+    init_data = exec_init(flags, action, args.config)
 
     # Execute action if allowed.
     if init_data[0]:
-        action_ok = exec_action(flags, args.action, init_data[1], \
+        action_ok = exec_action(flags, action, init_data[1], \
                                     args.config, bak_dir)
 
     # Force a backup restore if command has failed.
     if not action_ok:
-        log(flags, "An error occured during action \'" + args.action + \
+        log(flags, "An error occured during action \'" + action + \
                     "\'", TextType.INFO)
         if args.norestore:
             log(flags, "Restore has been disabled (-r), " + \
@@ -567,7 +586,8 @@ def exec_init(flags, action, config_path):
 
     # Prepare if a subcommand is used.
     changes_committed = False
-    if action and action != 'create-config':
+    if action and action != 'create-config' and \
+            action != 'clone':
         # Try to clean current branch from ignored files.
         try:
             log(flags, "Cleaning ignored files from working directory.")
@@ -586,8 +606,9 @@ def exec_init(flags, action, config_path):
             log_err(flags, err)
             quit()
 
-        # Pre load config if not being created.
+        # Pre load config, initialize to 'None' for no-config action.
         log(flags, "Reading config file", TextType.INFO)
+        conf = None
         try:
             # Switch branch to master before trying to read config.
             gbputil.switch_branch(_MASTER_BRANCH)
@@ -601,7 +622,8 @@ def exec_init(flags, action, config_path):
     if changes_committed:
         # For debian branch.
         if restore_data[0] == conf['debianBranch'] and \
-                (action == 'commit-release' or action == 'update-changelog' or \
+                (action == 'commit-release' or \
+                action == 'update-changelog' or \
                 action == 'commit-build'):
             log(flags, "Commit all changes on debian branch \'" + \
                             conf['debianBranch'] + "\' before running " + \
@@ -634,7 +656,7 @@ def exec_action(flags, action, conf, config_path, bak_dir):
     try:
         # Build release without commiting.
         if action == 'test-pkg':
-            test_release(conf, flags)
+            test_pkg(conf, flags)
 
         # Prepare release.
         elif action == 'commit-release':
@@ -662,7 +684,7 @@ def exec_action(flags, action, conf, config_path, bak_dir):
         elif action == 'reset':
             reset_repository(flags, bak_dir)
 
-        # Create example config.
+        # Clone a remote repository and setup the necessary branches.
         elif action == 'clone':
             clone_repository(flags)
 
