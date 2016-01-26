@@ -115,7 +115,7 @@ def get_head_tags(branch, tag_type):
     switch_branch(branch)
     try:
         # Get all tags at HEAD.
-        head_tags = exec_cmd(["git", "tag", "--points-at", "HEAD"]).rstrip()
+        head_tags = exec_cmd(["git", "tag", "--points-at", "HEAD"])
         # Find the matching tags.
         matching_tags = re.findall(r"(?m)^" + tag_type + r"/.*$", head_tags)
         return matching_tags
@@ -152,7 +152,7 @@ def get_latest_tag(branch, tag_type):
     switch_branch(branch)
     try:
         return exec_cmd(["git", "describe", "--abbrev=0", "--tags", \
-                                "--match", tag_type + "/*"]).rstrip()
+                                "--match", tag_type + "/*"])
     except CommandError:
         raise GitError("The branch \'" + branch + \
                             "\' has no tags of type: " + \
@@ -235,7 +235,7 @@ def is_working_dir_clean():
     """
     check_git_rep()
     try:
-        return exec_cmd(["git", "status", "--porcelain"]).rstrip() == ''
+        return exec_cmd(["git", "status", "--porcelain"]) == ''
     except CommandError:
         raise GitError("Could not determine if working directory is clean.", \
                         "status")
@@ -247,7 +247,7 @@ def get_branch():
     """
     check_git_rep()
     try:
-        return exec_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"]).rstrip()
+        return exec_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"])
     except CommandError:
         raise GitError("Could not find the name of the current branch", \
                         "rev-parse")
@@ -259,7 +259,7 @@ def get_head_commit(branch):
     """
     switch_branch(branch)
     try:
-        return exec_cmd(["git", "rev-parse", "HEAD"]).rstrip()
+        return exec_cmd(["git", "rev-parse", "HEAD"])
     except CommandError:
         raise GitError("Could not find HEAD commit of branch \'" + \
                             branch + "\'", "rev-parse")
@@ -578,7 +578,7 @@ def exec_cmd(cmd):
         raise CommandError(cmd_delimiter.join(cmd), stdoutput, stderroutput)
     else:
         # Success!
-        return stdoutput
+        return stdoutput.strip()
 
 def exec_editor(editor_cmd, _file):
     """

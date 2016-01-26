@@ -233,7 +233,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
     if not upstream_treeish:
         try:
             upstream_ver = gbputil.get_head_tag_version( \
-                                conf['upstreamBranch'], conf['upstreamTagType'])
+                            conf['upstreamBranch'], conf['upstreamTagType'])
             log(flags, "Building debian package for upstream version \'" + \
                             upstream_ver + "\'")
         except Error as err:
@@ -247,8 +247,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
     gbputil.switch_branch(conf['debianBranch'])
 
     try:
-        version = gbputil.exec_cmd(["dpkg-parsechangelog", \
-                                    "--show-field", "Version"])
+        version = exec_cmd(["dpkg-parsechangelog", "--show-field", "Version"])
     except Error as err:
         log_err(flags, err)
         raise OpError()
@@ -305,7 +304,7 @@ def build_pkg(conf, flags, build_flags, tag=False, sign_tag=False, \
                 try:
                     log(flags, "Running Lintian...", TextType.INFO)
                     log(flags, exec_cmd(["lintian", "-Iv", "--color", "auto", \
-                        os.path.join(pkg_build_dir, changes_files[0])]).rstrip())
+                        os.path.join(pkg_build_dir, changes_files[0])]))
                     log(flags, "Lintian Done", TextType.INFO)
                 except CommandError as err:
                     if err.stderr:
