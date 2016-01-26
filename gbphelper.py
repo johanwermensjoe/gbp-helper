@@ -442,6 +442,8 @@ def reset_repository(flags, bak_dir):
     # Print success message.
     log_success(flags)
 
+#TODO Change to regular clone with config and branch setup after
+#TODO Rename to clone_source_rep
 def clone_repository(flags):
     """ Clones a remote repository and creates the proper branches. """
     log(flags, "\nCloning remoterepository", TextType.INFO)
