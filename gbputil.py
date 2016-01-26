@@ -599,9 +599,9 @@ def clean_dir(flags, dir_path):
         # Remove all files and directories in the given directory.
         for file_ in os.listdir(dir_path):
             if os.path.isdir(file_):
-                remove_dir(flags, file_)
+                remove_dir(flags, os.path.join(dir_path, file_))
             else:
-                remove_file(flags, file_)
+                remove_file(flags, os.path.join(dir_path, file_))
     else:
         # Just create the given directory.
         mkdirs(flags, dir_path)
