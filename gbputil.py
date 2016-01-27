@@ -195,13 +195,6 @@ def is_version_lt(ver1, ver2):
     """ Checks whether the first version string is greater than second. """
     return compare_versions(ver1, ver2) < 0
 
-def is_version_lte(ver1, ver2):
-    """
-    Checks whether the first version string
-    is less than or equal to the second.
-    """
-    return compare_versions(ver1, ver2) <= 0
-
 def compare_versions(ver1, ver2):
     """ Compares two versions. """
     ver_s = [ver1, ver2]
@@ -561,6 +554,9 @@ def get_config_default(key, template):
 ### If a failure occurs functions print an error message and terminate.
 #########################################################################
 
+CMD_DEL = " "
+PIPE = subprocess.PIPE
+
 def exec_cmd(cmd):
     """
     Executes a shell command.
@@ -568,19 +564,43 @@ def exec_cmd(cmd):
     Returns the command output.
     - cmd   -- list of the executable followed by the arguments.
     """
-    pipe = subprocess.PIPE
-    cmd_delimiter = " "
-
     try:
-        process = subprocess.Popen(cmd, stdout=pipe, stderr=pipe)
-        stdoutput, stderroutput = process.communicate()
+        proc = subprocess.Popen(cmd, stdout=PIPE, stderr=PIPE)
+        stdoutput, stderroutput = proc.communicate()
     except Exception as err:
-        raise CommandError(cmd_delimiter.join(cmd), err.msg)
+        raise CommandError(CMD_DEL.join(cmd), err.msg)
 
     if ('fatal' in stdoutput) or ('fatal' in stderroutput) or \
-            process.returncode >= 1:
+            proc.returncode >= 1:
         # Handle error case
-        raise CommandError(cmd_delimiter.join(cmd), stdoutput, stderroutput)
+        raise CommandError(CMD_DEL.join(cmd), stdoutput, stderroutput)
+    else:
+        # Success!
+        return stdoutput.strip()
+
+def exec_piped_cmds(cmd1, cmd2):
+    """
+    Executes a two piped shell commands.
+    Errors will be raised as CommandError.
+    Returns the command output.
+    - cmd1, cmd2    -- list of the executable followed by the arguments.
+    """
+    try:
+        proc1 = subprocess.Popen(cmd1, stdout=PIPE)
+        proc2 = subprocess.Popen(cmd2, stdin=proc1.stdout, \
+                                    stdout=PIPE, stderr=PIPE)
+        # Allow p1 to receive a SIGPIPE if p2 exits.
+        proc1.stdout.close()
+        stdoutput, stderroutput = proc2.communicate()
+    except Exception as err:
+        raise CommandError(CMD_DEL.join(cmd1) + " | " + CMD_DEL.join(cmd2), \
+                            err.msg)
+
+    if ('fatal' in stdoutput) or ('fatal' in stderroutput) or \
+            proc2.returncode >= 1:
+        # Handle error case
+        raise CommandError(CMD_DEL.join(cmd1) + " | " + CMD_DEL.join(cmd2), \
+                            stdoutput, stderroutput)
     else:
         # Success!
         return stdoutput.strip()

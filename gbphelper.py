@@ -8,11 +8,12 @@ Used as a helper script for gbp-buildpackage.
 ####### Always exit safley.
 
 import os
+import glob
 import argparse
 import gbputil
 from gbputil import Error, GitError, CommandError, ConfigError, OpError
 from gbputil import log, log_err, log_success, TextType
-from gbputil import exec_cmd
+from gbputil import exec_cmd, exec_piped_cmds
 
 __version__ = "0.4"
 
@@ -473,6 +474,9 @@ def clone_source_repository(flags):
         if not flags['safemode']:
             exec_cmd(["git", "clone", "-b", remote_src_branch, url])
 
+        # Move into the cloned repository.
+        os.chdir(rep_name)
+
         # Create all branches.
         for i, branch_name in enumerate(branch_names):
             if branch_name != remote_src_branch:
@@ -489,23 +493,34 @@ def clone_source_repository(flags):
         # Clean upstream branch.
         log(flags, "Cleaning upstream branch \'" + branch_names[1] + "\'")
         gbputil.switch_branch(branch_names[1])
-        exec_cmd(["git", "rm", "-rf", "--ignore-unmatch", "*"])
+        if not flags['safemode']:
+            exec_cmd(["git", "rm", "-rf", "--ignore-unmatch", "*"])
+        log(flags, "Creating initial upstream commit on branch \'" + \
+                    branch_names[1] + "\'")
         gbputil.commit_changes(flags, "Initial upstream commit.")
 
         # Initiate
         log(flags, "Cleaning debian branch \'" + branch_names[1] + "\'")
         gbputil.switch_branch(branch_names[2])
         exec_cmd(["git", "rm", "-rf", "--ignore-unmatch", "*"])
-        version = gbputil.prompt_user_input("Input the initial package " + \
-                                            "version")
-        email = gbputil.prompt_user_input("Input the developer " + \
-                                            " e-mail address", True)
-        email_cmd = ["-e", email] if email else []
-        exec_cmd(["dh_make", "-p", rep_name, version, "-i"] ++ email_cmd)
-        gbputil.commit_changes(flags, "Initial debian commit.")
 
-        # Move into the cloned repository.
-        os.chdir(rep_name)
+        # Let user choose to create example debian files or not.
+        if gbputil.prompt_user_yn("Do you want to create an " + \
+                                    "example debian/ files?"):
+            version = gbputil.prompt_user_input("Input the initial " + \
+                                                "package version")
+            email = gbputil.prompt_user_input("Input the developer " + \
+                                                "e-mail address", True)
+            email_cmd = ["-e", email] if email else []
+            if not flags['safemode']:
+                exec_piped_cmds(["yes"], ["dh_make", "-p", rep_name + \
+                            "_" + version, "-i", "--createorig"] + email_cmd)
+                gbputil.remove_file(flags, glob.glob(os.path.join("../", \
+                                        rep_name + "_" + version + "*"))[0])
+
+        log(flags, "Creating initial debian commit on branch \'" + \
+                    branch_names[2] + "\'")
+        gbputil.commit_changes(flags, "Initial debian commit.")
 
         # Create preset keys.
         preset_keys = {}
@@ -515,6 +530,9 @@ def clone_source_repository(flags):
         # Setup config.
         gbputil.switch_branch(branch_names[0])
         create_config(flags, _DEFAULT_CONFIG_PATH, preset_keys)
+        log(flags, "Creating initial release commit on branch \'" + \
+                    branch_names[0] + "\'")
+        gbputil.commit_changes(flags, "Initial release commit.")
     except Error as err:
         log_err(flags, err)
         quit()
