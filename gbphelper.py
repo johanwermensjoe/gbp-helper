@@ -453,18 +453,18 @@ def clone_source_repository(flags):
 
     try:
         # Prompt user for url.
-        url = gbputil.prompt_user_input("Input the URL of " + \
+        url = gbputil.prompt_user_input("Enter the URL of " + \
                                         "the remote repository")
         rep_name = gbputil.get_rep_name_from_url(url)
 
         # Prompt user for the name of the remote source branch.
-        remote_src_branch = gbputil.prompt_user_input("Input the name of " + \
+        remote_src_branch = gbputil.prompt_user_input("Enter the name of " + \
                                         "the remote source branch", True, \
                                         _MASTER_BRANCH)
 
         # Prompt user for the name of the all branches.
         for entry in branches:
-            branch_names.append(gbputil.prompt_user_input("Input the name " + \
+            branch_names.append(gbputil.prompt_user_input("Enter the name " + \
                                         "of the " + entry[0] + " branch", \
                                         True, gbputil.get_config_default( \
                                                 entry[1], _CONFIG)))
@@ -507,13 +507,13 @@ def clone_source_repository(flags):
         # Let user choose to create example debian files or not.
         if gbputil.prompt_user_yn("Do you want to create an " + \
                                     "example debian/ files?"):
-            version = gbputil.prompt_user_input("Input the initial " + \
+            version = gbputil.prompt_user_input("Enter the initial " + \
                                                 "package version")
-            email = gbputil.prompt_user_input("Input the developer " + \
+            email = gbputil.prompt_user_input("Enter the developer " + \
                                                 "e-mail address", True)
             email_cmd = ["-e", email] if email else []
             if not flags['safemode']:
-                exec_piped_cmds(["yes"], ["dh_make", "-p", rep_name + \
+                exec_piped_cmds(["echo", "y"], ["dh_make", "-p", rep_name + \
                             "_" + version, "-i", "--createorig"] + email_cmd)
                 gbputil.remove_file(flags, glob.glob(os.path.join("../", \
                                         rep_name + "_" + version + "*"))[0])

@@ -814,8 +814,8 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
                             "\' is not tagged correctly")
             if not version:
                 # Prompt user to tag the HEAD of release branch.
-                raw_ver = prompt_user_input("Enter release version to tag" + \
-                                            ", otherwise leave empty", True)
+                raw_ver = prompt_user_input("Enter release version to tag", \
+                                            False)
                 if raw_ver:
                     version = raw_ver
                 else:
