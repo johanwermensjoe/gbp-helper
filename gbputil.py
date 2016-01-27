@@ -691,8 +691,10 @@ def prompt_user_input(prompt, allow_empty=False, default=None):
     while True:
         sys.stdout.write(prompt + prompt_add)
         input_ = raw_input().lower()
-        if allow_empty or not input_ == '':
+        if input_ != '':
             return input_
+        elif allow_empty:
+            return default
         else:
             sys.stdout.write("Please respond with a non-empty string.\n")
 

@@ -445,6 +445,7 @@ def clone_source_repository(flags):
     """ Clones a remote repository and creates the proper branches. """
     log(flags, "\nCloning remote source repository", TextType.INFO)
 
+    # The branch identifiers and keys to create.
     branches = [('release', 'releaseBranch'), ('upstream', 'upstreamBranch'), \
                 ('debian', 'debianBranch')]
     branch_names = []
@@ -453,6 +454,7 @@ def clone_source_repository(flags):
         # Prompt user for url.
         url = gbputil.prompt_user_input("Input the URL of " + \
                                         "the remote repository")
+        rep_name = gbputil.get_rep_name_from_url(url)
 
         # Prompt user for the name of the remote source branch.
         remote_src_branch = gbputil.prompt_user_input("Input the name of " + \
@@ -484,8 +486,25 @@ def clone_source_repository(flags):
                 log(flags, "Not creating " + branches[i][0] + " branch " + \
                             "since name conflicts with source branch")
 
+        # Clean upstream branch.
+        log(flags, "Cleaning upstream branch \'" + branch_names[1] + "\'")
+        gbputil.switch_branch(branch_names[1])
+        exec_cmd(["git", "rm", "-rf", "--ignore-unmatch", "*"])
+        gbputil.commit_changes(flags, "Initial upstream commit.")
+
+        # Initiate
+        log(flags, "Cleaning debian branch \'" + branch_names[1] + "\'")
+        gbputil.switch_branch(branch_names[2])
+        exec_cmd(["git", "rm", "-rf", "--ignore-unmatch", "*"])
+        version = gbputil.prompt_user_input("Input the initial package " + \
+                                            "version")
+        email = gbputil.prompt_user_input("Input the developer " + \
+                                            " e-mail address", True)
+        email_cmd = ["-e", email] if email else []
+        exec_cmd(["dh_make", "-p", rep_name, version, "-i"] ++ email_cmd)
+        gbputil.commit_changes(flags, "Initial debian commit.")
+
         # Move into the cloned repository.
-        rep_name = gbputil.get_rep_name_from_url(url)
         os.chdir(rep_name)
 
         # Create preset keys.
