@@ -473,7 +473,7 @@ def log_success(flags):
 ### This section defines functions for parsing and writing config files.
 #########################################################################
 
-def create_ex_config(flags, config_path, template):
+def create_ex_config(flags, config_path, template, preset_keys=None):
     """
     Creates an example gbp-helper.conf file.
     Errors will be raised as ConfigError.
@@ -489,7 +489,12 @@ def create_ex_config(flags, config_path, template):
             for section in template:
                 config.add_section(section[0])
                 for entry in section[1]:
-                    config.set(section[0], entry[0], entry[1])
+                    # Try to find value in preset keys first.
+                    if preset_keys and entry[0] in preset_keys:
+                        val = preset_keys[entry[0]]
+                    else:
+                        val = entry[1]
+                    config.set(section[0], entry[0], val)
 
             # Writing configuration file to "configPath".
             if not flags['safemode']:
@@ -680,9 +685,9 @@ def prompt_user_input(prompt, allow_empty=False, default=None):
     prompt_add = ": "
     if allow_empty:
         if not default:
-            prompt_add = " (empty to skip): "
+            prompt_add = ": (empty to skip): "
         else:
-            prompt_add = " [" + default + "]: "
+            prompt_add = ": [" + default + "] "
     while True:
         sys.stdout.write(prompt + prompt_add)
         input_ = raw_input().lower()

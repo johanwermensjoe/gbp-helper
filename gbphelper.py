@@ -408,7 +408,7 @@ def upload_pkg(conf, flags):
     if changes_paths:
         # Ask user for confirmation
         if not gbputil.prompt_user_yn("Upload the latest build (version \'" + \
-                    os.path.basename(paths_files[0]).split('_')[1] + "\')?"):
+                    os.path.basename(changes_paths[0]).split('_')[1] + "\')?"):
             raise OpError()
         try:
             if not flags['safemode']:
@@ -441,40 +441,61 @@ def reset_repository(flags, bak_dir):
     # Print success message.
     log_success(flags)
 
-#TODO Change to regular clone with config and branch setup after
-#TODO Rename to clone_source_rep
-def clone_repository(flags):
+def clone_source_repository(flags):
     """ Clones a remote repository and creates the proper branches. """
-    log(flags, "\nCloning remoterepository", TextType.INFO)
+    log(flags, "\nCloning remote source repository", TextType.INFO)
+
+    branches = [('release', 'releaseBranch'), ('upstream', 'upstreamBranch'), \
+                ('debian', 'debianBranch')]
+    branch_names = []
 
     try:
         # Prompt user for url.
         url = gbputil.prompt_user_input("Input the URL of " + \
                                         "the remote repository")
 
-        # Prompt user for the name of the debian branch.
-        debian_branch = gbputil.prompt_user_input("Input the name of " + \
-                                        "the debian branch", True, \
-                                        gbputil.get_config_default( \
-                                            'debianBranch', _CONFIG))
+        # Prompt user for the name of the remote source branch.
+        remote_src_branch = gbputil.prompt_user_input("Input the name of " + \
+                                        "the remote source branch", True, \
+                                        _MASTER_BRANCH)
 
-        # Prompt user for the name of the upstream branch.
-        upstream_branch = gbputil.prompt_user_input("Input the name of " + \
-                                        "the upstream branch", True, \
-                                        gbputil.get_config_default( \
-                                            'upstreamBranch', _CONFIG))
-
-        # Clone repository
+        # Prompt user for the name of the all branches.
+        for entry in branches:
+            branch_names.append(gbputil.prompt_user_input("Input the name " + \
+                                        "of the " + entry[0] + " branch", \
+                                        True, gbputil.get_config_default( \
+                                                entry[1], _CONFIG)))
+        # Clone repository.
+        log(flags, "Cloning from url \'" + url + "\' and checking out " + \
+                    "source branch \'" + remote_src_branch + "\'")
         if not flags['safemode']:
-            exec_cmd(["gbp", "clone", "--debian-branch=" + \
-                    debian_branch, "--upstream-branch=" + \
-                    upstream_branch, "--all", url])
+            exec_cmd(["git", "clone", "-b", remote_src_branch, url])
+
+        # Create all branches.
+        for i, branch_name in enumerate(branch_names):
+            if branch_name != remote_src_branch:
+                log(flags, "Creating " + branches[i][0] + " branch \'" + \
+                            branch_name + "\' from source branch \'" + \
+                            remote_src_branch + "\'")
+                if not flags['safemode']:
+                    exec_cmd(["git", "branch", branch_name])
+                gbputil.switch_branch(remote_src_branch)
+            else:
+                log(flags, "Not creating " + branches[i][0] + " branch " + \
+                            "since name conflicts with source branch")
 
         # Move into the cloned repository.
         rep_name = gbputil.get_rep_name_from_url(url)
         os.chdir(rep_name)
-        gbputil.switch_branch(_MASTER_BRANCH)
-        create_config(flags, _DEFAULT_CONFIG_PATH)
+
+        # Create preset keys.
+        preset_keys = {}
+        for i, branch_name in enumerate(branch_names):
+            preset_keys[branches[i][1]] = branch_name
+
+        # Setup config.
+        gbputil.switch_branch(branch_names[0])
+        create_config(flags, _DEFAULT_CONFIG_PATH, preset_keys)
     except Error as err:
         log_err(flags, err)
         quit()
@@ -482,13 +503,13 @@ def clone_repository(flags):
     # Print success message.
     log_success(flags)
 
-def create_config(flags, config_path):
+def create_config(flags, config_path, preset_keys=None):
     """ Creates example config. """
     log(flags, "\nCreating example config file", TextType.INFO)
 
     try:
         log(flags, "Config file is written to " + config_path)
-        gbputil.create_ex_config(flags, config_path, _CONFIG)
+        gbputil.create_ex_config(flags, config_path, _CONFIG, preset_keys)
     except Error as err:
         log_err(flags, err)
         quit()
@@ -511,7 +532,7 @@ def execute(flags, args):
 
     # Determine if action is repository based.
     rep_action = not action == 'reset' and \
-                    not action == 'clone' and \
+                    not action == 'clone-src' and \
                     not action == 'create-config'
 
     # Create repository backup.
@@ -688,8 +709,8 @@ def exec_action(flags, action, conf, config_path, bak_dir):
             reset_repository(flags, bak_dir)
 
         # Clone a remote repository and setup the necessary branches.
-        elif action == 'clone':
-            clone_repository(flags)
+        elif action == 'clone-src':
+            clone_source_repository(flags)
 
         # Create example config.
         elif action == 'create-config':
@@ -731,7 +752,7 @@ def parse_args_and_execute():
     parser.add_argument('action', nargs='?', \
         choices=['test-pkg', 'commit-release', 'update-changelog', \
                 'test-build', 'commit-build', 'upload-pkg', 'reset', \
-                'clone', 'create-config'], \
+                'clone-src', 'create-config'], \
         help="the main action (see gbp-helper(1)) for details")
 
     # General args.
