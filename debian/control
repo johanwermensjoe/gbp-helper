@@ -12,7 +12,8 @@ Architecture: all
 Depends: ${misc:Depends}, ${python:Depends},
          python (>= 2.7),
          debhelper(>= 9),
-         git-buildpackage(>= 0.6.9)
+         git-buildpackage(>= 0.6.9),
+         dh-make(>= 0.63)
 Description: is a helper script to build debian packages with git
  The script uses config files to specify branch names etc
  for your projects and helps you maintain three core branches:
