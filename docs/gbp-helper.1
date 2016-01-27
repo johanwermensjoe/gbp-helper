@@ -58,36 +58,42 @@ Enable colored output.
 .B \-s ", " \-\-safemode
 Prevent any file changes.
 .TP
+.B \-n ", " \-\-norestore
+Prevent auto restore on command failure.
+.TP
 .B \-\-config \fICONFIG_FILE\fR
 Path to the config file (default is ./gbp\-helper).
 
 .SH COMMANDS
 .TP
+.B test\-pkg
+Prepare a release and build the package with test options.
+Reset repository to the previous state. Used to test release changes quickly.
+.TP
 .B commit\-release
 Commit the current release to the upstream branch and tag.
 Then merge the created upstream with the debian branch.
 .TP
-.B test\-release
-Prepare a release and build the package with test options.
-Reset repository to the previous state. Used to test release changes quickly.
-.TP
 .B update\-changelog
 Update the changelog for a new release and commit the changes.
 .TP
-.B build\-pkg
+.B test\-build
 Build the latest debian package with test options without tagging.
 .TP
-.B commit\-pkg
+.B commit\-build
 Build the latest debian package with standard options and tag.
-The tag version is based on the latest version in debian/changlog.
+The tag version is based on the latest version in debian/changelog.
 .TP
-.B upload
+.B upload\-pkg
 Upload the last build to the configured PPA.
 Will not perform a build.
 .TP
 .B reset
 Reset the repository to a earlier state e.g before a failed command.
 The backups are stored temporarily and are created on all actions.
+.TP
+.B clone-src
+Clone a source repository and setup release, upstream and debian branches.
 .TP
 .B create\-config
 Create example config file with default values.

@@ -6,7 +6,6 @@ Contains various io functions for git and packaging.
 import os
 import shutil
 import sys
-import string
 import subprocess
 import re
 import ConfigParser
@@ -19,7 +18,6 @@ import datetime
 class Error(Exception):
     """Base class for exceptions in this module."""
     pass
-
 class CommandError(Error):
     """Error raised when executing a shell command.
 
@@ -30,6 +28,7 @@ class CommandError(Error):
     """
 
     def __init__(self, expr, stdout, stderr):
+        Error.__init__(self)
         self.expr = expr
         self.stdout = stdout
         self.stderr = stderr
@@ -43,6 +42,7 @@ class GitError(Error):
     """
 
     def __init__(self, msg, opr=None):
+        Error.__init__(self)
         self.opr = opr
         self.msg = msg
 
@@ -56,6 +56,7 @@ class ConfigError(Error):
     """
 
     def __init__(self, msg, file_=None, line=None):
+        Error.__init__(self)
         self.msg = msg
         self.file = file_
         self.line = line
@@ -69,6 +70,7 @@ class OpError(Error):
     """
 
     def __init__(self, err=None, msg=None):
+        Error.__init__(self)
         self.err = err
         self.msg = msg
 
@@ -113,7 +115,7 @@ def get_head_tags(branch, tag_type):
     switch_branch(branch)
     try:
         # Get all tags at HEAD.
-        head_tags = exec_cmd(["git", "tag", "--points-at", "HEAD"]).rstrip()
+        head_tags = exec_cmd(["git", "tag", "--points-at", "HEAD"])
         # Find the matching tags.
         matching_tags = re.findall(r"(?m)^" + tag_type + r"/.*$", head_tags)
         return matching_tags
@@ -150,7 +152,7 @@ def get_latest_tag(branch, tag_type):
     switch_branch(branch)
     try:
         return exec_cmd(["git", "describe", "--abbrev=0", "--tags", \
-                                "--match", tag_type + "/*"]).rstrip()
+                                "--match", tag_type + "/*"])
     except CommandError:
         raise GitError("The branch \'" + branch + \
                             "\' has no tags of type: " + \
@@ -191,16 +193,18 @@ def get_latest_tag_version(branch, tag_type):
 
 def is_version_lt(ver1, ver2):
     """ Checks whether the first version string is greater than second. """
-    return ver1 != ver2 and is_version_lte(ver1, ver2)
+    return compare_versions(ver1, ver2) < 0
 
-def is_version_lte(ver1, ver2):
-    """
-    Checks whether the first version string
-    is less than or equal to the second.
-    """
-    versions = [ver1, ver2]
-    versions.sort(key=lambda s: [int(v) for v in s.split('~')[0].split('.')])
-    return versions[0] == ver1
+def compare_versions(ver1, ver2):
+    """ Compares two versions. """
+    ver_s = [ver1, ver2]
+    ver_s.sort(key=lambda s: re.findall(r'''\d+''', s))
+    if ver1 == ver2:
+        return 0
+    elif ver_s[0] == ver1:
+        return -1
+    else:
+        return 1
 
 def get_next_version(version):
     """
@@ -208,9 +212,12 @@ def get_next_version(version):
     Errors will be raised as GitError.
     """
     try:
-        ver_part = version.split('.')
+        # Split if the version has a 1.0-0ppa1 form.
+        base_part = version.split('~', 1)
+        ver_part = base_part[0].split('.')
         ver_part[-1] = str(int(ver_part[-1]) + 1)
-        return '.'.join(ver_part)
+        return '.'.join(ver_part) + \
+                (("-" + base_part[1]) if len(base_part) > 1 else "")
     except Error:
         raise GitError("Version \'" + version + "\' could not be incremented")
 
@@ -221,7 +228,7 @@ def is_working_dir_clean():
     """
     check_git_rep()
     try:
-        return exec_cmd(["git", "status", "--porcelain"]).rstrip() == ''
+        return exec_cmd(["git", "status", "--porcelain"]) == ''
     except CommandError:
         raise GitError("Could not determine if working directory is clean.", \
                         "status")
@@ -233,19 +240,19 @@ def get_branch():
     """
     check_git_rep()
     try:
-        return exec_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"]).rstrip()
+        return exec_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"])
     except CommandError:
         raise GitError("Could not find the name of the current branch", \
                         "rev-parse")
 
 def get_head_commit(branch):
     """
-    Retrives the name of the current branch.
+    Retrives the name HEAD commit on the given branch.
     Errors will be raised as GitError.
     """
     switch_branch(branch)
     try:
-        return exec_cmd(["git", "rev-parse", "HEAD"]).rstrip()
+        return exec_cmd(["git", "rev-parse", "HEAD"])
     except CommandError:
         raise GitError("Could not find HEAD commit of branch \'" + \
                             branch + "\'", "rev-parse")
@@ -286,9 +293,9 @@ def stash_changes(flags, name=None):
     try:
         if not flags['safemode']:
             if name:
-                exec_cmd(["git", "stash", "save", name])
+                exec_cmd(["git", "stash", "save", "--include-untracked", name])
             else:
-                exec_cmd(["git", "stash"])
+                exec_cmd(["git", "stash", "save", "--include-untracked"])
     except CommandError:
         raise GitError("Could not stash uncommitted changes", "stash")
 
@@ -300,9 +307,11 @@ def apply_stash(flags, branch, name=None, drop=True):
     try:
         if not flags['safemode']:
             if name:
-                exec_cmd(["git", "stash", "apply", "stash/" + name])
+                exec_cmd(["git", "stash", "apply", "stash^{/\"" + \
+                            name + "\"}"])
                 if drop:
-                    exec_cmd(["git", "stash", "drop", "stash/" + name])
+                    exec_cmd(["git", "stash", "drop", "stash^{/\"" + \
+                            name + "\"}"])
             else:
                 exec_cmd(["git", "stash", "apply"])
                 if drop:
@@ -310,7 +319,7 @@ def apply_stash(flags, branch, name=None, drop=True):
 
     except CommandError:
         raise GitError("Could not apply stashed changes" + \
-                        (" (stash/" + name + ")" if name else ""), "stash")
+                        (" (" + name + ")" if name else ""), "stash")
 
 def delete_tag(flags, tag):
     """
@@ -338,13 +347,20 @@ def tag_head(flags, branch, tag):
                         "and may already exist", "tag")
 
 def clean_ignored_files(flags):
-    """ Cleans files matched by a .gitignor file. """
+    """ Cleans files matched by a .gitignore file. """
     try:
         if not flags['safemode']:
             exec_cmd(["git", "clean", "-Xf"])
     except CommandError:
         raise GitError("Could not clean ignored files", "clean")
 
+def get_rep_name_from_url(url):
+    """ Exracts a gitrepositori name from a remote URL. """
+    match = re.match(r'''(?i)^.*/(.*)\.git$''', url)
+    if match:
+        return match.group(1)
+    else:
+        return None
 ########################### Logging Tools ###############################
 #########################################################################
 ### This section defines functions useful for logging.
@@ -388,7 +404,7 @@ def _print_format(msg, format_):
     """
     if format_:
         # Print format codes., message and end code.
-        print string.join(format_) + msg + _ColorCode.ENDC
+        print str.join("", format_) + msg + _ColorCode.ENDC
     else:
         print msg
 
@@ -450,7 +466,7 @@ def log_success(flags):
 ### This section defines functions for parsing and writing config files.
 #########################################################################
 
-def create_ex_config(flags, config_path, template):
+def create_ex_config(flags, config_path, template, preset_keys=None):
     """
     Creates an example gbp-helper.conf file.
     Errors will be raised as ConfigError.
@@ -466,7 +482,12 @@ def create_ex_config(flags, config_path, template):
             for section in template:
                 config.add_section(section[0])
                 for entry in section[1]:
-                    config.set(section[0], entry[0], entry[1])
+                    # Try to find value in preset keys first.
+                    if preset_keys and entry[0] in preset_keys:
+                        val = preset_keys[entry[0]]
+                    else:
+                        val = entry[1]
+                    config.set(section[0], entry[0], val)
 
             # Writing configuration file to "configPath".
             if not flags['safemode']:
@@ -514,12 +535,27 @@ def get_config(config_path, template):
 
     return conf
 
+def get_config_default(key, template):
+    """
+    Returns the default configuration value for the given key.
+    - key       -- the key
+    - template  -- the config template
+    """
+    for section in template:
+        for entry in section[1]:
+            if key == entry[0]:
+                return entry[1]
+    return None
+
 ########################### IO/UI Tools #################################
 #########################################################################
 ### This section defines functions useful for file and ui operations.
 ### Some functions will print progress messages.
 ### If a failure occurs functions print an error message and terminate.
 #########################################################################
+
+CMD_DEL = " "
+PIPE = subprocess.PIPE
 
 def exec_cmd(cmd):
     """
@@ -528,22 +564,46 @@ def exec_cmd(cmd):
     Returns the command output.
     - cmd   -- list of the executable followed by the arguments.
     """
-    pipe = subprocess.PIPE
-    cmd_delimiter = " "
-
     try:
-        process = subprocess.Popen(cmd, stdout=pipe, stderr=pipe)
-        stdoutput, stderroutput = process.communicate()
+        proc = subprocess.Popen(cmd, stdout=PIPE, stderr=PIPE)
+        stdoutput, stderroutput = proc.communicate()
     except Exception as err:
-        raise CommandError(cmd_delimiter.join(cmd), err.msg)
+        raise CommandError(CMD_DEL.join(cmd), err.msg)
 
     if ('fatal' in stdoutput) or ('fatal' in stderroutput) or \
-            process.returncode >= 1:
+            proc.returncode >= 1:
         # Handle error case
-        raise CommandError(cmd_delimiter.join(cmd), stdoutput, stderroutput)
+        raise CommandError(CMD_DEL.join(cmd), stdoutput, stderroutput)
     else:
         # Success!
-        return stdoutput
+        return stdoutput.strip()
+
+def exec_piped_cmds(cmd1, cmd2):
+    """
+    Executes a two piped shell commands.
+    Errors will be raised as CommandError.
+    Returns the command output.
+    - cmd1, cmd2    -- list of the executable followed by the arguments.
+    """
+    try:
+        proc1 = subprocess.Popen(cmd1, stdout=PIPE)
+        proc2 = subprocess.Popen(cmd2, stdin=proc1.stdout, \
+                                    stdout=PIPE, stderr=PIPE)
+        # Allow p1 to receive a SIGPIPE if p2 exits.
+        proc1.stdout.close()
+        stdoutput, stderroutput = proc2.communicate()
+    except Exception as err:
+        raise CommandError(CMD_DEL.join(cmd1) + " | " + CMD_DEL.join(cmd2), \
+                            err.msg)
+
+    if ('fatal' in stdoutput) or ('fatal' in stderroutput) or \
+            proc2.returncode >= 1:
+        # Handle error case
+        raise CommandError(CMD_DEL.join(cmd1) + " | " + CMD_DEL.join(cmd2), \
+                            stdoutput, stderroutput)
+    else:
+        # Success!
+        return stdoutput.strip()
 
 def exec_editor(editor_cmd, _file):
     """
@@ -559,13 +619,14 @@ def clean_dir(flags, dir_path):
     """ Cleans or if not existant creates a directory.
     - dir_path  -- The path of the directory to clean.
     """
+    # Remove all files and directories in the given directory.
     if os.path.isdir(dir_path):
         # Remove all files and directories in the given directory.
         for file_ in os.listdir(dir_path):
             if os.path.isdir(file_):
-                remove_dir(flags, file_)
+                remove_dir(flags, os.path.join(dir_path, file_))
             else:
-                remove_file(flags, file_)
+                remove_file(flags, os.path.join(dir_path, file_))
     else:
         # Just create the given directory.
         mkdirs(flags, dir_path)
@@ -581,14 +642,16 @@ def mkdirs(flags, dir_path):
 
 def get_files_with_extension(dir_path, extension):
     """ Retrives the files matching the given file suffix.
-    - dir_path  -- The path of the directory to create.
+    - dir_path  -- The path of the directory search reqursivley.
     - extension -- The file suffix to look for.
+    Returns the list of files with full paths based on dir_path.
     """
-    files = []
-    for file_ in os.listdir(dir_path):
-        if file_.endswith(extension):
-            files += [file_]
-    return files
+    ext_files = []
+    for path, _, files in os.walk(dir_path):
+        for file_ in files:
+            if file_.endswith(extension):
+                ext_files += [os.path.join(path, file_)]
+    return ext_files
 
 def remove_dir(flags, dir_path):
     """ Removes a directory.
@@ -600,13 +663,60 @@ def remove_dir(flags, dir_path):
             shutil.rmtree(dir_path)
 
 def remove_file(flags, file_path):
-    """ Removes a file.
+    """
+    Removes a file.
     - file_path -- The path of the file to remove.
     """
     if os.path.isfile(file_path):
         if not flags['safemode']:
             # Remove the file.
             os.remove(file_path)
+
+def move_file_dir(flags, old_path, new_path):
+    """ Moves a file or a dirctory. """
+    if old_path != new_path:
+        # Calculate the parent directory paths.
+        old_dir = os.path.dirname(old_path)
+        new_dir = os.path.dirname(new_path)
+
+        # Check if the file/dir is being moved or just renamed.
+        if old_dir != new_dir:
+            if not flags['safemode']:
+                # Make sure parent directory exists.
+                if not os.path.isdir(new_dir):
+                    os.makedirs(new_dir)
+        else:
+            # Rename
+            if not flags['safemode']:
+                # If only case differs, do temp move (Samba compability).
+                if old_path.lower() == new_path.lower():
+                    os.rename(old_path, old_path + "_temp")
+                    old_path += "_temp"
+                # Do the move/rename.
+                os.rename(old_path, new_path)
+
+def prompt_user_input(prompt, allow_empty=False, default=None):
+    """
+    Promts the user for input and returns it.
+    A space is added after the prompt automatically.
+    - allow_empty -- Set to 'True' to allow empty string as input
+    - default     -- Set to the default answer if left empty
+    """
+    prompt_add = ": "
+    if allow_empty:
+        if not default:
+            prompt_add = ": (empty to skip): "
+        else:
+            prompt_add = ": [" + default + "] "
+    while True:
+        sys.stdout.write(prompt + prompt_add)
+        input_ = raw_input().lower()
+        if input_ != '':
+            return input_
+        elif allow_empty:
+            return default
+        else:
+            sys.stdout.write("Please respond with a non-empty string.\n")
 
 def prompt_user_yn(question, default="yes"):
     """
@@ -666,15 +776,6 @@ def prompt_user_options(question, options, default=0):
             sys.stdout.write("Please respond with a integer in the range " + \
                                 "[0-" + (len(options) - 1) + "]\n")
 
-
-def prompt_user(prompt):
-    """
-    Prompts the user for input and returns their answer.
-    """
-    sys.stdout.write(prompt)
-    input_ = raw_input()
-    return input_
-
 ####################### Comnbined Operations ############################
 #########################################################################
 ### This section defines functions combining IO/UI with Git operations.
@@ -713,8 +814,8 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
                             "\' is not tagged correctly")
             if not version:
                 # Prompt user to tag the HEAD of release branch.
-                raw_ver = prompt_user("Enter release version to tag" +
-                                            ", otherwise leave empty: ")
+                raw_ver = prompt_user_input("Enter release version to tag", \
+                                            False)
                 if raw_ver:
                     version = raw_ver
                 else:
@@ -724,8 +825,75 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
             # Tag using the given version.
             if not flags['safemode']:
                 tag = tag_type + "/" + version
+                log(flags, "Tagging HEAD commit on branch \'" + branch + \
+                            "\' as \'" + tag + "\'")
                 tag_head(flags, branch, tag)
             return (version, tag, True)
+    except Error as err:
+        raise OpError(err)
+
+def create_temp_commit(flags):
+    """
+    Commits any uncommitted changes on the current
+    branch to a temporary commit.
+    - branch    -- The branch to tag.
+    Returns the a tuple with the branch name, commit id and
+    stash name, used to restore the inital state with the
+    'restore_temp_commit' function.
+    If no changes can be commited the stash name is set to 'None'.
+    """
+    try:
+        # Save the current branch
+        current_branch = get_branch()
+        log(flags, "Saving current branch name \'" + current_branch + "\' ")
+
+         # Try to get the HEAD commmit id of the current branch.
+        head_commit = get_head_commit(current_branch)
+
+        # Check for uncommitted changes.
+        if not is_working_dir_clean():
+            log(flags, "Stashing uncommited changes on branch \'" + \
+                        current_branch + "\'")
+            # Save changes to tmp stash.
+            stash_name = "gbp-helper<" + head_commit + ">"
+            stash_changes(flags, stash_name)
+
+            # Apply stash and create a temporary commit.
+            log(flags, "Creating temporary commit on branch \'" + \
+                        current_branch + "\'")
+            apply_stash(flags, current_branch, stash_name, False)
+            commit_changes(flags, "Temp \'" + current_branch + "\' commit.")
+        else:
+            stash_name = None
+            log(flags, "Working directory clean, no commit needed")
+
+        return (current_branch, head_commit, stash_name)
+    except Error as err:
+        raise OpError(err)
+
+def restore_temp_commit(flags, restore_data):
+    """
+    Restores the inital state before a temp commit was created.
+    - restore_data  -- The restore data returned from the
+                        'create_temp_commit' function.
+    """
+    try:
+        # Restore branch.
+        if restore_data[0] != get_branch():
+            log(flags, "Switching active branch to \'" + restore_data[0] + \
+                        "\'")
+            switch_branch(restore_data[0])
+
+        # Check if changes have been stashed (and temporary commit created).
+        if restore_data[2]:
+            log(flags, "Resetting branch \'" + \
+                    restore_data[0] + "\'to commit \'" + \
+                    restore_data[1] + "\'")
+            reset_branch(flags, restore_data[0], restore_data[1])
+
+            log(flags, "Restoring uncommitted changes from stash to " + \
+                    "branch \'" + restore_data[0] + "\'")
+            apply_stash(flags, restore_data[0], restore_data[2], True)
     except Error as err:
         raise OpError(err)
 
@@ -743,8 +911,9 @@ def add_backup(flags, bak_dir, name="unknown"):
         name.replace('_', '-')
 
         # Set the path to the new backup file.
-        tar_path = os.path.join(bak_dir, name + "_" + \
-                        time.strftime(_BAK_FILE_DATE_FORMAT) + _BAK_FILE_EXT)
+        tar_name = name + "_" + time.strftime(_BAK_FILE_DATE_FORMAT) + \
+                        _BAK_FILE_EXT
+        tar_path = os.path.join(bak_dir, tar_name)
 
         # Make a safety backup of the current git repository.
         log(flags, "Creating backup file \'" + tar_path + "\'")
@@ -752,62 +921,68 @@ def add_backup(flags, bak_dir, name="unknown"):
             mkdirs(flags, bak_dir)
             exec_cmd(["tar", "-czf", tar_path, "."])
 
-        return tar_path
+        return tar_name
     except Error as err:
         log(flags, "Could not add backup in \'" + bak_dir + "\'")
         raise OpError(err)
 
-def restore_backup(flags, bak_dir, num=None):
+def restore_backup(flags, bak_dir, num=None, name=None):
     """
     Tries to restore repository to a saved backup.
     Will prompt the user for the requested restore point if
     num is not set.
     - bak_dir   -- The backup storage directory.
-    - num   -- The index number of the restore point (latest first).
+    - num       -- The index number of the restore point (latest first).
     """
     try:
         check_git_rep()
 
-        # Find all previously backed up states.
-        bak_files = get_files_with_extension(bak_dir, _BAK_FILE_EXT)
-        if not bak_files:
-            raise OpError("No backups exists in directory \'" + \
-                            bak_dir + "\'")
+        # If name is set just restore that file.
+        if name:
+            bak_name = name
 
-        # Sort the bak_files according to date.
-        bak_files.sort(key=lambda s: [int(v) for v in \
+        else:
+            # Find all previously backed up states.
+            bak_files = get_files_with_extension(bak_dir, _BAK_FILE_EXT)
+            if not bak_files:
+                raise OpError("No backups exists in directory \'" + \
+                                bak_dir + "\'")
+
+            # Sort the bak_files according to date.
+            bak_files.sort(key=lambda s: [int(v) for v in \
                                 s.split('_')[1].split('.')[0].split('-')], \
                                 reverse=True)
 
-        # Set the max tab depth.
-        max_tab_depth = max([1 + (len(s.split('_')[0]) / _TAB_WIDTH) \
+            # Set the max tab depth.
+            max_tab_depth = max([1 + (len(s.split('_')[0]) / _TAB_WIDTH) \
                                                         for s in bak_files])
 
-        # Prompt user to select a state to restore.
-        options = []
-        for fname in bak_files:
-            option = "\t" + fname.split('_')[0]
-            option += "\t" * (max_tab_depth - len(option) / _TAB_WIDTH)
-            option += datetime.datetime.strptime( \
-                        fname.split('_')[1].split('.')[0], \
-                        _BAK_FILE_DATE_FORMAT).strftime( \
-                            _BAK_DISP_DATE_FORMAT)
-            options += [option]
+            # Prompt user to select a state to restore.
+            options = []
+            for fname in bak_files:
+                option = "\t" + fname.split('_')[0]
+                option += "\t" * (max_tab_depth - len(option) / _TAB_WIDTH)
+                option += datetime.datetime.strptime( \
+                            fname.split('_')[1].split('.')[0], \
+                            _BAK_FILE_DATE_FORMAT).strftime( \
+                                _BAK_DISP_DATE_FORMAT)
+                options += [option]
 
-        # Check if prompt can be skipped.
-        if not num is None:
-            if num >= len(options) or num < 0:
-                raise OpError("Invalid backup index \'" + \
-                            num + "\' is outside [0-" + \
-                            str(len(options) - 1) + "]")
-        else:
-            # Prompt.
-            num = prompt_user_options("Select the backup to restore", options)
-            if num is None:
-                raise OpError(msg="Restore aborted by user")
+            # Check if prompt can be skipped.
+            if not num is None:
+                if num >= len(options) or num < 0:
+                    raise OpError("Invalid backup index \'" + \
+                                num + "\' is outside [0-" + \
+                                str(len(options) - 1) + "]")
+            else:
+                # Prompt.
+                num = prompt_user_options("Select the backup to restore", \
+                                            options)
+                if num is None:
+                    raise OpError(msg="Restore aborted by user")
 
-        # Set the chosen backup name.
-        bak_name = bak_files[num]
+            # Set the chosen backup name.
+            bak_name = bak_files[num]
 
         # Restore backup.
         try:
