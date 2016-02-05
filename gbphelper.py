@@ -26,7 +26,7 @@ _BUILD_DIR = "../build-area"
 _TMP_DIR = "/tmp"
 _TMP_TAR_SUBDIR = "tarball"
 _TMP_BAK_SUBDIR = "backup"
-_CHANGES_FILE_EXT = ".changes"
+_CHANGES_FILE_EXT = "source.changes"
 _ORIG_TAR_FILE_EXT = ".orig.tar.gz"
 _MASTER_BRANCH = "master"
 _BUILD_CMD = "debuild"
@@ -403,8 +403,8 @@ def upload_pkg(conf, flags):
                                                     _CHANGES_FILE_EXT)
 
     # Sort the files on version.
-    changes_paths.sort(cmp=gbputil.compare_versions, \
-                    key=lambda s: [os.path.basename(s).split('_')[1]])
+    changes_paths.sort(cmp=gbputil.compare_versions, reverse=True, \
+                    key=lambda s: os.path.basename(s).split('_')[1])
 
     if changes_paths:
         # Ask user for confirmation
@@ -625,7 +625,7 @@ def exec_options(args, flags):
     """
     # Show version.
     if args.version:
-        log(flags, __version__, 1)
+        log(flags, __version__)
         # Always exit after showing version.
         quit()
 
