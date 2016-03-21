@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-
+#TODO Add ignore optional in gbp-helper.conf
 """
 gbphelper module:
 Used as a helper script for gbp-buildpackage.
 """
 
-####### Always exit safley.
+####### Always exit safely.
 
 import os
 import glob
