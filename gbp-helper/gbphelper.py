@@ -581,6 +581,9 @@ def execute(flags, args):
     chdir(args.dir)
 
     action = args.action
+    if action is None:
+        log(flags, "No action selected, exiting")
+        #quit()
 
     # Determine if action is repository based.
     rep_action = (action != 'reset' and
@@ -643,7 +646,7 @@ def exec_options(args, flags):
     """
     # Show version.
     if args.version:
-        log(flags, __version__)
+        log(flags, __version__, TextType.INFO)
         # Always exit after showing version.
         quit()
 
@@ -668,7 +671,7 @@ def exec_init(flags, action, rep_action, config_path):
     restore_data = None
 
     # Prepare if a sub command is used.
-    if action and rep_action:
+    if action is not None and rep_action:
         # Try to clean current branch from ignored files.
         try:
             log(flags, "Cleaning ignored files from working directory.")

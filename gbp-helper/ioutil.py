@@ -146,14 +146,15 @@ def exec_cmd(cmd):
         proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
         std_output, std_err_output = proc.communicate()
         # Decode
-        std_output = std_output.decode("utf-8")
-        std_err_output = std_output.decode("utf-8")
+        #std_output = std_output.decode("utf-8")
+        #std_err_output = std_output.decode("utf-8")
     except (OSError, ValueError) as err:
+        proc.kill()
         raise CommandError(_CMD_DEL.join(cmd), std_output,
                            std_err_output + "\nError message:\n" + str(err))
 
-    if ('fatal' in std_output) or (
-                'fatal' in std_err_output) or proc.returncode >= 1:
+    if (b'fatal' in std_output) or (
+                b'fatal' in std_err_output) or proc.returncode >= 1:
         # Handle error case
         raise CommandError(_CMD_DEL.join(cmd), std_output, std_err_output)
     else:
@@ -180,6 +181,8 @@ def exec_piped_cmds(cmd1, cmd2):
         std_output = std_output.decode("utf-8")
         std_err_output = std_output.decode("utf-8")
     except (OSError, ValueError) as err:
+        proc1.kill()
+        proc2.kill()
         raise CommandError(_CMD_DEL.join(cmd1) + " | " + _CMD_DEL.join(cmd2),
                            std_output,
                            std_err_output + "\nError message:\n" + str(err))
