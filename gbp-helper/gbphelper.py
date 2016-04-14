@@ -6,13 +6,14 @@ Used as a helper script for gbp-buildpackage.
 from argparse import ArgumentParser
 from glob import glob
 from os import path, chdir, getcwd
+from re import findall
 
 from gbputil import verify_create_head_tag, OpError, ConfigError, \
     restore_backup, create_ex_config, add_backup, restore_temp_commit, \
     create_temp_commit, get_config, get_config_default
 from gitutil import get_head_tag_version, commit_changes, switch_branch, \
     GitError, get_next_version, get_latest_tag_version, is_version_lt, \
-    compare_versions, get_rep_name_from_url, clean_ignored_files
+    get_rep_name_from_url, clean_ignored_files
 from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
     exec_cmd, get_files_with_extension, clean_dir, \
     log_success, log_err, remove_dir, CommandError, exec_editor, \
@@ -407,9 +408,9 @@ def upload_pkg(conf, flags):
                                              _CHANGES_FILE_EXT)
 
     # Sort the files on version.
-    changes_paths.sort(cmp=compare_versions, reverse=True,
-                       key=lambda s: path.basename(s).split('_')[1])
-
+    changes_paths.sort(
+        key=lambda s: findall(r'''\d+''', path.basename(s).split('_')[1]),
+        reverse=True)
     if changes_paths:
         # Ask user for confirmation
         if not prompt_user_yn(

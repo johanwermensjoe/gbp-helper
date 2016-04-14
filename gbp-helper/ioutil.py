@@ -145,6 +145,9 @@ def exec_cmd(cmd):
     try:
         proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
         std_output, std_err_output = proc.communicate()
+        # Decode
+        std_output = std_output.decode("utf-8")
+        std_err_output = std_output.decode("utf-8")
     except (OSError, ValueError) as err:
         raise CommandError(_CMD_DEL.join(cmd), std_output,
                            std_err_output + "\nError message:\n" + str(err))
@@ -173,6 +176,9 @@ def exec_piped_cmds(cmd1, cmd2):
         # Allow p1 to receive a SIGPIPE if p2 exits.
         proc1.stdout.close()
         std_output, std_err_output = proc2.communicate()
+        # Decode
+        std_output = std_output.decode("utf-8")
+        std_err_output = std_output.decode("utf-8")
     except (OSError, ValueError) as err:
         raise CommandError(_CMD_DEL.join(cmd1) + " | " + _CMD_DEL.join(cmd2),
                            std_output,
@@ -201,7 +207,7 @@ def exec_editor(editor_cmd, _file):
 
 
 def clean_dir(flags, dir_path):
-    """ Cleans or if not existant creates a directory.
+    """ Cleans or if not existent creates a directory.
     - dir_path  -- The path of the directory to clean.
     """
     # Remove all files and directories in the given directory.
