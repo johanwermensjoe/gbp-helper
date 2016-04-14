@@ -2,7 +2,7 @@
 gbputil module:
 Contains various io functions for git and packaging.
 """
-from configparser import RawConfigParser, NoOptionError, NoSectionError
+from configparser import ConfigParser
 from datetime import datetime
 from os import path, getcwd
 from time import strftime
@@ -72,7 +72,84 @@ class OpError(Error):
 ### This section defines functions for parsing and writing config files.
 #########################################################################
 
-def create_ex_config(flags, config_path, template, preset_keys=None):
+DEFAULT_CONFIG_PATH = "gbphelper.conf"
+
+
+class Setting(object):
+    """ Setting identifier class.
+    """
+    RELEASE_BRANCH = 'releaseBranch'
+    RELEASE_TAG_TYPE = 'releaseTagType'
+    UPSTREAM_BRANCH = 'upstreamBranch'
+    UPSTREAM_TAG_TYPE = 'upstreamTagType'
+    DEBIAN_BRANCH = 'debianBranch'
+    DEBIAN_TAG_TYPE = 'debianTagType'
+
+    GPG_KEY_ID = 'gpgKeyId'
+
+    BUILD_FLAGS = 'buildFlags'
+    TEST_BUILD_FLAGS = 'testBuildFlags'
+
+    PACKAGE_NAME = 'packageName'
+    DISTRIBUTION = 'distribution'
+    URGENCY = 'urgency'
+    DEBIAN_VERSION_SUFFIX = 'debianVersionSuffix'
+    EXCLUDE_FILES = 'excludeFiles'
+
+    PPA_NAME = 'ppa'
+
+
+class _BaseSetting(object):
+    def __init__(self, default, section, required, converter):
+        self.default = default
+        self.section = section
+        self.required = required
+        self.converter = converter
+
+
+class _Section(object):
+    GIT = "GIT"
+    SIGNING = "SIGNING"
+    BUILD = "BUILD"
+    PACKAGE = "PACKAGE"
+    UPLOAD = "UPLOAD"
+
+
+# Settings with default value, section and visibility.
+_CONFIG = {
+    # Persistent settings.
+    Setting.RELEASE_BRANCH: _BaseSetting("master", _Section.GIT, True,
+                                         lambda s: s == 'True'),
+    Setting.RELEASE_TAG_TYPE: _BaseSetting("release", _Section.GIT, True,
+                                           lambda s: s == 'True'),
+    Setting.UPSTREAM_BRANCH: _BaseSetting("upstream", _Section.GIT, True,
+                                          lambda s: s == 'True'),
+    Setting.UPSTREAM_TAG_TYPE: _BaseSetting("upstream", _Section.GIT, True,
+                                            lambda s: s == 'True'),
+    Setting.DEBIAN_BRANCH: _BaseSetting("debian", _Section.GIT, True,
+                                        lambda s: s == 'True'),
+    Setting.DEBIAN_TAG_TYPE: _BaseSetting("debian", _Section.GIT, True,
+                                          lambda s: s == 'True'),
+
+    Setting.GPG_KEY_ID: _BaseSetting(None, _Section.SIGNING, False, str),
+
+    Setting.BUILD_FLAGS: _BaseSetting(None, _Section.BUILD, False, str),
+    Setting.TEST_BUILD_FLAGS: _BaseSetting(None, _Section.BUILD, False, str),
+
+    Setting.PACKAGE_NAME: _BaseSetting(None, _Section.PACKAGE, False, str),
+    Setting.DISTRIBUTION: _BaseSetting(None, _Section.PACKAGE, False, str),
+    Setting.URGENCY: _BaseSetting("low", _Section.PACKAGE, False, str),
+    Setting.DEBIAN_VERSION_SUFFIX: _BaseSetting("-0~ppa1", _Section.PACKAGE,
+                                                False, str),
+    Setting.EXCLUDE_FILES: _BaseSetting(
+        DEFAULT_CONFIG_PATH + ",README.md,LICENCE",
+        _Section.PACKAGE, False, lambda s: str),
+
+    Setting.PPA_NAME: _BaseSetting(None, _Section.UPLOAD, False, str),
+}
+
+
+def create_ex_config(flags, config_path, preset_keys=None):
     """
     Creates an example gbp-helper.conf file.
     Errors will be raised as ConfigError.
@@ -83,21 +160,22 @@ def create_ex_config(flags, config_path, template, preset_keys=None):
                           " be replaced by an example file", config_path)
     else:
         try:
-            config = RawConfigParser()
+            config = ConfigParser()
 
-            for section in template:
-                config.add_section(section[0])
-                for entry in section[1]:
-                    # Try to find value in preset keys first.
-                    if preset_keys is not None and entry[0] in preset_keys:
-                        val = preset_keys[entry[0]]
-                    else:
-                        val = entry[1]
-                    config.set(section[0], entry[0], val)
+            for key, setting in _CONFIG.items():
+                if not config.has_section(setting.section):
+                    config[setting.section] = {}
+
+                # Try to find value in preset keys first.
+                if preset_keys is not None and key in preset_keys:
+                    val = preset_keys[key]
+                else:
+                    val = setting.default
+                config[setting.section][key] = str(val)
 
             # Writing configuration file to "configPath".
             if not flags['safemode']:
-                with open(config_path, 'wb') as config_file:
+                with open(config_path, 'w') as config_file:
                     config.write(config_file)
 
         except IOError as err:
@@ -105,7 +183,7 @@ def create_ex_config(flags, config_path, template, preset_keys=None):
                               format(err.errno, err.strerror), config_path)
 
 
-def get_config(config_path, template):
+def get_config(config_path):
     """
     Update the config variables.
     Errors will be raised as ConfigError.
@@ -115,29 +193,28 @@ def get_config(config_path, template):
         raise ConfigError("The config file could not be found", config_path)
 
     # Parse config file.
-    config = RawConfigParser(allow_no_value=True)
+    config = ConfigParser(allow_no_value=True)
     config.read(config_path)
 
     # Make sure the required values are set.
     conf = {}
-    for section in template:
-        for entry in section[1]:
-            # Set conf value even if it's empty.
-            try:
-                val = config.get(section[0], entry[0])
-            except (NoSectionError, NoOptionError):
-                val = None
-            # Check if required but non existent.
-            if val is None:
-                # Use default value instead (can be None).
-                val = entry[1]
-                # Check if required in config.
-                if entry[2]:
-                    raise ConfigError("The value in for " + entry[0] +
-                                      " in section [" + section[0] +
-                                      "] is missing but required",
-                                      config_path)
-            conf[entry[0]] = val
+    for key, setting in _CONFIG.items():
+        # Set conf value even if it's empty.
+        try:
+            val = setting.convert(config[setting.section][key])
+        except KeyError:
+            val = None
+        # Check if required but non existent.
+        if val is None:
+            # Use default value instead (can be None).
+            val = setting.default
+            # Check if required in config.
+            if setting.required:
+                raise ConfigError("The value in for " + key +
+                                  " in section [" + setting.section +
+                                  "] is missing but required",
+                                  config_path)
+        conf[key] = val
 
     # Handle special fields.
     if conf['packageName'] is None:
@@ -146,31 +223,26 @@ def get_config(config_path, template):
     return conf
 
 
-def get_config_default(key, template):
+def get_config_default(key):
     """
     Returns the default configuration value for the given key.
     - key       -- the key
-    - template  -- the config template
     """
-    for section in template:
-        for entry in section[1]:
-            if key == entry[0]:
-                return entry[1]
-    return None
+    return _CONFIG[key].default
 
 
-####################### Comnbined Operations ############################
+####################### Combined Operations ############################
 #########################################################################
 ### This section defines functions combining IO/UI with Git operations.
 ### Some functions will print progress messages.
-### If a failure occurs functions will try to reset any persistant operations
-### alreday executed before the error.
+### If a failure occurs functions will try to reset any persistent operations
+### already executed before the error.
 ### After the reset is attempted, functions terminates with an OpError.
 #########################################################################
 
 _BAK_FILE_EXT = ".bak.tar.gz"
 _BAK_FILE_DATE_FORMAT = "%Y-%m-%d-%H-%M-%S"
-_BAK_DISP_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+_BAK_DISPLAY_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 _TAB_WIDTH = 8
 
@@ -354,7 +426,7 @@ def restore_backup(flags, bak_dir, num=None, name=None):
                 option += "\t" * (max_tab_depth - len(option) / _TAB_WIDTH)
                 option += datetime.strptime(
                     f_name.split('_')[1].split('.')[0],
-                    _BAK_FILE_DATE_FORMAT).strftime(_BAK_DISP_DATE_FORMAT)
+                    _BAK_FILE_DATE_FORMAT).strftime(_BAK_DISPLAY_DATE_FORMAT)
                 options += [option]
 
             # Check if prompt can be skipped.

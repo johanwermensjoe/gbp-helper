@@ -10,7 +10,7 @@ from re import findall
 
 from gbputil import verify_create_head_tag, OpError, ConfigError, \
     restore_backup, create_ex_config, add_backup, restore_temp_commit, \
-    create_temp_commit, get_config, get_config_default
+    create_temp_commit, get_config, get_config_default, DEFAULT_CONFIG_PATH
 from gitutil import get_head_tag_version, commit_changes, switch_branch, \
     GitError, get_next_version, get_latest_tag_version, is_version_lt, \
     get_rep_name_from_url, clean_ignored_files
@@ -24,7 +24,6 @@ from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
 
 __version__ = "0.5"
 
-_DEFAULT_CONFIG_PATH = "gbphelper.conf"
 _CHANGELOG_PATH = "debian/changelog"
 _BUILD_DIR = "../build-area"
 _TMP_DIR = "/tmp"
@@ -36,34 +35,6 @@ _MASTER_BRANCH = "master"
 _BUILD_CMD = "debuild"
 _EDITOR_CMD = "editor"
 _DEL_EXCLUDE = ","
-
-_CONFIG = \
-    [('GIT', [
-        ('releaseBranch', "master", True),
-        ('releaseTagType', "release", True),
-        ('upstreamBranch', "upstream", True),
-        ('upstreamTagType', "upstream", True),
-        ('debianBranch', "debian", True),
-        ('debianTagType', "debian", True)
-    ]),
-     ('SIGNING', [
-         ('gpgKeyId', None, False)
-     ]),
-     ('BUILD', [
-         ('buildFlags', None, False),
-         ('testBuildFlags', None, False)
-     ]),
-     ('PACKAGE', [
-         ('packageName', None, False),
-         ('distribution', None, False),
-         ('urgency', "low", False),
-         ('debianVersionSuffix', "-0~ppa1", False),
-         ('excludeFiles', _DEFAULT_CONFIG_PATH + ",README.md,LICENCE", False)
-     ]),
-     ('UPLOAD', [
-         ('ppa', None, False)
-     ])]
-
 
 ####################### Sub Command functions ###########################
 #########################################################################
@@ -476,9 +447,7 @@ def clone_source_repository(flags):
                                                   "of the " + entry[
                                                       0] + " branch",
                                                   True,
-                                                  get_config_default(
-                                                      entry[1], _CONFIG)
-                                                  ))
+                                                  get_config_default(entry[1])))
         # Clone repository.
         log(flags,
             "Cloning from url \'{0}\' and checking out source branch \'{1}\'".
@@ -542,7 +511,7 @@ def clone_source_repository(flags):
 
         # Setup config.
         switch_branch(branch_names[0])
-        create_config(flags, _DEFAULT_CONFIG_PATH, preset_keys)
+        create_config(flags, preset_keys)
         log(flags, "Creating initial release commit on branch \'" +
             branch_names[0] + "\'")
         commit_changes(flags, "Initial release commit.")
@@ -560,7 +529,7 @@ def create_config(flags, config_path, preset_keys=None):
 
     try:
         log(flags, "Config file is written to " + config_path)
-        create_ex_config(flags, config_path, _CONFIG, preset_keys)
+        create_ex_config(flags, config_path, preset_keys)
     except Error as err:
         log_err(flags, err)
         quit()
@@ -696,7 +665,7 @@ def exec_init(flags, action, rep_action, config_path):
         try:
             # Switch branch to master before trying to read config.
             switch_branch(_MASTER_BRANCH)
-            conf = get_config(config_path, _CONFIG)
+            conf = get_config(config_path)
         except Error as err:
             log_err(flags, err)
             quit()
@@ -807,7 +776,7 @@ def parse_args_and_execute():
                         help='prevent any file changes')
     parser.add_argument('-n', '--norestore', action='store_true',
                         help='prevent auto restore on command failure')
-    parser.add_argument('--config', default=_DEFAULT_CONFIG_PATH,
+    parser.add_argument('--config', default=DEFAULT_CONFIG_PATH,
                         help='path to the gbp-helper.conf file')
 
     # The possible sub commands.

@@ -141,7 +141,7 @@ def exec_cmd(cmd):
     Returns the command output.
     - cmd   -- list of the executable followed by the arguments.
     """
-    std_output, std_err_output = "", ""
+    std_output, std_err_output = '', ''
     proc = None
     try:
         proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
