@@ -582,8 +582,9 @@ def execute(flags, args):
 
     action = args.action
     if action is None:
-        log(flags, "No action selected, exiting")
-        #quit()
+        log(flags, "No action selected, see \"gbp-helper --help\"",
+            TextType.INFO)
+        quit()
 
     # Determine if action is repository based.
     rep_action = (action != 'reset' and

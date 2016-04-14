@@ -142,19 +142,21 @@ def exec_cmd(cmd):
     - cmd   -- list of the executable followed by the arguments.
     """
     std_output, std_err_output = "", ""
+    proc = None
     try:
         proc = Popen(cmd, stdout=PIPE, stderr=PIPE)
         std_output, std_err_output = proc.communicate()
         # Decode
-        #std_output = std_output.decode("utf-8")
-        #std_err_output = std_output.decode("utf-8")
+        std_output = std_output.decode("utf-8")
+        std_err_output = std_err_output.decode("utf-8")
     except (OSError, ValueError) as err:
-        proc.kill()
+        if proc is not None:
+            proc.kill()
         raise CommandError(_CMD_DEL.join(cmd), std_output,
                            std_err_output + "\nError message:\n" + str(err))
 
-    if (b'fatal' in std_output) or (
-                b'fatal' in std_err_output) or proc.returncode >= 1:
+    if ('fatal' in std_output) or (
+                'fatal' in std_err_output) or proc.returncode >= 1:
         # Handle error case
         raise CommandError(_CMD_DEL.join(cmd), std_output, std_err_output)
     else:
@@ -170,6 +172,7 @@ def exec_piped_cmds(cmd1, cmd2):
     - cmd1, cmd2    -- list of the executable followed by the arguments.
     """
     std_output, std_err_output = "", ""
+    proc1 = proc2 = None
     try:
         proc1 = Popen(cmd1, stdout=PIPE)
         proc2 = Popen(cmd2, stdin=proc1.stdout,
@@ -179,10 +182,12 @@ def exec_piped_cmds(cmd1, cmd2):
         std_output, std_err_output = proc2.communicate()
         # Decode
         std_output = std_output.decode("utf-8")
-        std_err_output = std_output.decode("utf-8")
+        std_err_output = std_err_output.decode("utf-8")
     except (OSError, ValueError) as err:
-        proc1.kill()
-        proc2.kill()
+        if proc1 is not None:
+            proc1.kill()
+        if proc2 is not None:
+            proc2.kill()
         raise CommandError(_CMD_DEL.join(cmd1) + " | " + _CMD_DEL.join(cmd2),
                            std_output,
                            std_err_output + "\nError message:\n" + str(err))
