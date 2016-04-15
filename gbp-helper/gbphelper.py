@@ -226,6 +226,70 @@ def commit_release(conf, flags, sign):
     return conf[Setting.UPSTREAM_TAG_TYPE] + "/" + release_ver
 
 
+def update_changelog(conf, flags, **opts):
+    """
+    Update the changelog with the git commit messages since last build.
+    - version   -- Set to <new version> to be created.
+    - editor    -- Set to True to open in a text editor after changes.
+    - commit    -- Set to True will commit the changes.
+    - release   -- Set to True will prepare release with review in editor.
+    """
+    version = opts.get('version', None)
+    editor = opts.get('editor', False)
+    commit = opts.get('commit', False)
+    release = opts.get('release', False)
+
+    log(flags, "\nUpdating changelog", TextType.INFO)
+
+    # Build and without tagging and do lintian checks.
+    log(flags, "Updating changelog to new version")
+    if version is None:
+        log(flags, "Version not set, using standard format")
+        try:
+            upstream_ver = get_head_tag_version(
+                conf[Setting.UPSTREAM_BRANCH], conf[Setting.UPSTREAM_TAG_TYPE])
+            debian_ver = upstream_ver + conf[Setting.DEBIAN_VERSION_SUFFIX]
+            log(flags, "Using version \'" + debian_ver + "\'")
+        except Error as err:
+            log_err(flags, err)
+            raise OpError()
+    else:
+        debian_ver = version
+        log(flags, "Updating changelog with version \'{}\'".format(debian_ver))
+
+    distribution_opt = (["--distribution=" + conf[Setting.DISTRIBUTION]]
+                        if conf[Setting.DISTRIBUTION] is not None else [])
+    release_opt = (["--release"] if release else [])
+
+    try:
+        switch_branch(conf[Setting.DEBIAN_BRANCH])
+        if not flags['safemode']:
+            # Update changelog.
+            exec_cmd(["gbp", "dch", "--debian-branch=" +
+                      conf[Setting.DEBIAN_BRANCH],
+                      "--new-version=" + debian_ver,
+                      "--urgency=" + conf[Setting.URGENCY],
+                      "--spawn-editor=snapshot"] + distribution_opt +
+                     release_opt)
+
+            # Check if editor should be opened.
+            if editor:
+                exec_editor(_EDITOR_CMD, _CHANGELOG_PATH)
+
+        # Check if changes should be committed.
+        if commit:
+            log(flags, "Committing updated debian/changelog to branch \'" +
+                conf[Setting.DEBIAN_BRANCH] + "\'")
+            commit_changes(flags, "Update changelog for " +
+                           debian_ver + " release.")
+    except Error as err:
+        log_err(flags, err)
+        raise OpError()
+
+    # Print success message.
+    log_success(flags)
+
+
 def build(conf, flags, build_flags, **opts):
     """
     Builds package from the latest debian commit.
@@ -336,70 +400,6 @@ def build(conf, flags, build_flags, **opts):
                 log(flags, "Changes file (" + _CHANGES_FILE_EXT +
                     ") not found in \'" + pkg_build_dir +
                     "\', skipping lintian", TextType.WARNING)
-    except Error as err:
-        log_err(flags, err)
-        raise OpError()
-
-    # Print success message.
-    log_success(flags)
-
-
-def update_changelog(conf, flags, **opts):
-    """
-    Update the changelog with the git commit messages since last build.
-    - version   -- Set to <new version> to be created.
-    - editor    -- Set to True to open in a text editor after changes.
-    - commit    -- Set to True will commit the changes.
-    - release   -- Set to True will prepare release with review in editor.
-    """
-    version = opts.get('version', None)
-    editor = opts.get('editor', False)
-    commit = opts.get('commit', False)
-    release = opts.get('release', False)
-
-    log(flags, "\nUpdating changelog", TextType.INFO)
-
-    # Build and without tagging and do lintian checks.
-    log(flags, "Updating changelog to new version")
-    if version is None:
-        log(flags, "Version not set, using standard format")
-        try:
-            upstream_ver = get_head_tag_version(
-                conf[Setting.UPSTREAM_BRANCH], conf[Setting.UPSTREAM_TAG_TYPE])
-            debian_ver = upstream_ver + conf[Setting.DEBIAN_VERSION_SUFFIX]
-            log(flags, "Using version \'" + debian_ver + "\'")
-        except Error as err:
-            log_err(flags, err)
-            raise OpError()
-    else:
-        debian_ver = version
-        log(flags, "Updating changelog with version \'{}\'".format(debian_ver))
-
-    distribution_opt = (["--distribution=" + conf[Setting.DISTRIBUTION]]
-                        if conf[Setting.DISTRIBUTION] is not None else [])
-    release_opt = (["--release"] if release else [])
-
-    try:
-        switch_branch(conf[Setting.DEBIAN_BRANCH])
-        if not flags['safemode']:
-            # Update changelog.
-            exec_cmd(["gbp", "dch", "--debian-branch=" +
-                      conf[Setting.DEBIAN_BRANCH],
-                      "--new-version=" + debian_ver,
-                      "--urgency=" + conf[Setting.URGENCY],
-                      "--spawn-editor=snapshot"] + distribution_opt +
-                     release_opt)
-
-            # Check if editor should be opened.
-            if editor:
-                exec_editor(_EDITOR_CMD, _CHANGELOG_PATH)
-
-        # Check if changes should be committed.
-        if commit:
-            log(flags, "Committing updated debian/changelog to branch \'" +
-                conf[Setting.DEBIAN_BRANCH] + "\'")
-            commit_changes(flags, "Update changelog for " +
-                           debian_ver + " release.")
     except Error as err:
         log_err(flags, err)
         raise OpError()

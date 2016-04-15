@@ -222,7 +222,7 @@ def clean_dir(flags, dir_path):
     if path.isdir(dir_path):
         # Remove all files and directories in the given directory.
         for file_ in listdir(dir_path):
-            if path.isdir(file_):
+            if path.isdir(path.join(dir_path, file_)):
                 remove_dir(flags, path.join(dir_path, file_))
             else:
                 remove_file(flags, path.join(dir_path, file_))
