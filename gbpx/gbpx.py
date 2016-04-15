@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-gbphelper module:
+gbpx module:
 Used as a helper script for gbp-buildpackage.
 """
 from argparse import ArgumentParser
@@ -8,7 +8,7 @@ from glob import glob
 from os import path, chdir, getcwd
 from re import findall
 
-from gbputil import verify_create_head_tag, OpError, ConfigError, \
+from gbpxutil import verify_create_head_tag, OpError, ConfigError, \
     restore_backup, create_ex_config, add_backup, restore_temp_commit, \
     create_temp_commit, get_config, get_config_default, DEFAULT_CONFIG_PATH, \
     Setting
@@ -352,8 +352,8 @@ def build(conf, flags, build_flags, **opts):
             tag_opt += ["--git-sign-tags", "--git-keyid=" +
                         str(conf[Setting.GPG_KEY_ID])]
         else:
-            log(flags, "Your gpg key id is not set in your " +
-                "gbp-helper.conf, disabling tag signing.",
+            log(flags, "The gpg key id is not set in the " +
+                "configuration file, disabling tag signing.",
                 TextType.WARNING)
 
     # Prepare treeish identifier option for upstream.
@@ -610,7 +610,7 @@ def execute(flags, args):
     # Check that an action is selected.
     action = args.action
     if action is None:
-        log(flags, "No action selected, see \"gbp-helper --help\"",
+        log(flags, "No action selected, see \"gbpx --help\"",
             TextType.INFO)
         quit()
 
@@ -638,7 +638,7 @@ def execute(flags, args):
             try:
                 restore_backup(flags, bak_dir, name=bak_name)
             except OpError:
-                log(flags, "Restore failed, try \'gbp-helper {}\'".format(
+                log(flags, "Restore failed, try \'gbpx {}\'".format(
                     Action.RESTORE) + " to restore repository to " +
                     "previous state", TextType.INFO)
 
@@ -656,13 +656,13 @@ def execute(flags, args):
             "\':", TextType.INIT)
         if args.norestore:
             log(flags, "Restore has been disabled (-n), " +
-                "try \'gbp-helper {}\' to restore ".format(Action.RESTORE) +
+                "try \'gbpx {}\' to restore ".format(Action.RESTORE) +
                 "repository to previous state", TextType.INFO)
         elif _ACTION_CONF[action].is_repository_based:
             try:
                 restore_backup(flags, bak_dir, name=bak_name)
             except OpError:
-                log(flags, "Restore failed, try \'gbp-helper {}\'".format(
+                log(flags, "Restore failed, try \'gbpx {}\'".format(
                     Action.RESTORE) + " to restore repository to " +
                     "previous state", TextType.INFO)
 
@@ -812,7 +812,7 @@ def parse_args_and_execute():
     parser.add_argument('-n', '--norestore', action='store_true',
                         help='prevent auto restore on command failure')
     parser.add_argument('--config', default=DEFAULT_CONFIG_PATH,
-                        help='path to the gbp-helper.conf file')
+                        help='path to the configuration file')
 
     # The possible sub commands.
     parser.add_argument('action', nargs='?',
@@ -821,7 +821,7 @@ def parse_args_and_execute():
                                  Action.TEST_BUILD, Action.COMMIT_BUILD,
                                  Action.UPLOAD,
                                  Action.RESTORE, Action.CLONE, Action.CONFIG],
-                        help="the main action (see gbp-helper(1)) for details")
+                        help="the main action (see gbpx(1)) for details")
 
     # General args.
     parser.add_argument('dir', nargs='?', default=getcwd(),

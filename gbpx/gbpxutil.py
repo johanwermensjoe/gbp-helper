@@ -1,5 +1,5 @@
 """
-gbputil module:
+gbpxutil module:
 Contains various io functions for git and packaging.
 """
 from configparser import ConfigParser
@@ -72,7 +72,7 @@ class OpError(Error):
 ### This section defines functions for parsing and writing config files.
 #########################################################################
 
-DEFAULT_CONFIG_PATH = "gbphelper.conf"
+DEFAULT_CONFIG_PATH = "gbpx.conf"
 _DEL_EXCLUDE = ","
 
 
@@ -147,7 +147,7 @@ _CONFIG = {
 
 def create_ex_config(flags, config_path, preset_keys=None):
     """
-    Creates an example gbp-helper.conf file.
+    Creates an example gbpx.conf file.
     Errors will be raised as ConfigError.
     """
     # Make sure file does not exist.
@@ -309,7 +309,7 @@ def create_temp_commit(flags):
             log(flags, "Stashing uncommitted changes on branch \'{0}\'".
                 format(current_branch))
             # Save changes to tmp stash.
-            stash_name = "gbp-helper<{0}>".format(head_commit)
+            stash_name = "gbpx<{0}>".format(head_commit)
             stash_changes(flags, stash_name)
 
             # Apply stash and create a temporary commit.
