@@ -25,6 +25,7 @@ from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
 
 __version__ = "0.5"
 
+_GIT_IGNORE_PATH = ".gitignore"
 _CHANGELOG_PATH = "debian/changelog"
 _BUILD_DIR = "../build-area"
 _TMP_DIR = "/tmp"
@@ -169,11 +170,15 @@ def commit_release(conf, flags, sign):
         else:
             exclude_opts = []
 
+        # Add .gitignore to excluded if it is present.
+        if path.exists(_GIT_IGNORE_PATH):
+            exclude_opts.append("--exclude-from={}".format(_GIT_IGNORE_PATH))
+
         if not flags['safemode']:
             exec_cmd(["git", "archive", conf[Setting.RELEASE_BRANCH], "-o",
                       archive_path])
             exec_cmd(["tar", "-xf", archive_path, "--directory=" +
-                      source_dir_path, "--exclude-vcs-ignores"] + exclude_opts)
+                      source_dir_path] + exclude_opts)
 
         # Create the upstream tarball.
         log(flags, "Making upstream tarball from extracted source files")
