@@ -100,11 +100,11 @@ class Setting(object):
 
 
 class _BaseSetting(object):
-    def __init__(self, default, section, required, converter):
+    def __init__(self, default, section, required, convert):
         self.default = default
         self.section = section
         self.required = required
-        self.converter = converter
+        self.convert = convert
 
 
 class _Section(object):
@@ -416,14 +416,14 @@ def restore_backup(flags, bak_dir, num=None, name=None):
                            reverse=True)
 
             # Set the max tab depth.
-            max_tab_depth = max([1 + (len(s.split('_')[0]) / _TAB_WIDTH)
+            max_tab_depth = max([1 + (len(s.split('_')[0]) // _TAB_WIDTH)
                                  for s in bak_files])
 
             # Prompt user to select a state to restore.
             options = []
             for f_name in bak_files:
                 option = "\t" + f_name.split('_')[0]
-                option += "\t" * (max_tab_depth - len(option) / _TAB_WIDTH)
+                option += "\t" * (max_tab_depth - len(option) // _TAB_WIDTH)
                 option += datetime.strptime(
                     f_name.split('_')[1].split('.')[0],
                     _BAK_FILE_DATE_FORMAT).strftime(_BAK_DISPLAY_DATE_FORMAT)
