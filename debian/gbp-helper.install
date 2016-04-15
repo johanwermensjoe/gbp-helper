@@ -1,2 +1,4 @@
-gbphelper.py usr/lib/gbp-helper
-gbputil.py usr/lib/gbp-helper
+gbp-helper/gbphelper.py usr/lib/gbp-helper
+gbp-helper/gbputil.py usr/lib/gbp-helper
+gbp-helper/gitutil.py usr/lib/gbp-helper
+gbp-helper/ioutil.py usr/lib/gbp-helper
