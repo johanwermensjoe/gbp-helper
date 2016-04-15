@@ -73,6 +73,7 @@ class OpError(Error):
 #########################################################################
 
 DEFAULT_CONFIG_PATH = "gbphelper.conf"
+_DEL_EXCLUDE = ","
 
 
 class Setting(object):
@@ -118,18 +119,13 @@ class _Section(object):
 # Settings with default value, section and visibility.
 _CONFIG = {
     # Persistent settings.
-    Setting.RELEASE_BRANCH: _BaseSetting("master", _Section.GIT, True,
-                                         lambda s: s == 'True'),
-    Setting.RELEASE_TAG_TYPE: _BaseSetting("release", _Section.GIT, True,
-                                           lambda s: s == 'True'),
-    Setting.UPSTREAM_BRANCH: _BaseSetting("upstream", _Section.GIT, True,
-                                          lambda s: s == 'True'),
+    Setting.RELEASE_BRANCH: _BaseSetting("master", _Section.GIT, True, str),
+    Setting.RELEASE_TAG_TYPE: _BaseSetting("release", _Section.GIT, True, str),
+    Setting.UPSTREAM_BRANCH: _BaseSetting("upstream", _Section.GIT, True, str),
     Setting.UPSTREAM_TAG_TYPE: _BaseSetting("upstream", _Section.GIT, True,
-                                            lambda s: s == 'True'),
-    Setting.DEBIAN_BRANCH: _BaseSetting("debian", _Section.GIT, True,
-                                        lambda s: s == 'True'),
-    Setting.DEBIAN_TAG_TYPE: _BaseSetting("debian", _Section.GIT, True,
-                                          lambda s: s == 'True'),
+                                            str),
+    Setting.DEBIAN_BRANCH: _BaseSetting("debian", _Section.GIT, True, str),
+    Setting.DEBIAN_TAG_TYPE: _BaseSetting("debian", _Section.GIT, True, str),
 
     Setting.GPG_KEY_ID: _BaseSetting(None, _Section.SIGNING, False, str),
 
@@ -142,8 +138,8 @@ _CONFIG = {
     Setting.DEBIAN_VERSION_SUFFIX: _BaseSetting("-0~ppa1", _Section.PACKAGE,
                                                 False, str),
     Setting.EXCLUDE_FILES: _BaseSetting(
-        DEFAULT_CONFIG_PATH + ",README.md,LICENCE",
-        _Section.PACKAGE, False, lambda s: str),
+        DEFAULT_CONFIG_PATH + ",README.md,LICENCE", _Section.PACKAGE, False,
+        lambda s: [se.strip() for se in str(s).split(_DEL_EXCLUDE)]),
 
     Setting.PPA_NAME: _BaseSetting(None, _Section.UPLOAD, False, str),
 }

@@ -35,7 +35,6 @@ _ORIG_TAR_FILE_EXT = ".orig.tar.gz"
 _MASTER_BRANCH = "master"
 _BUILD_CMD = "debuild"
 _EDITOR_CMD = "editor"
-_DEL_EXCLUDE = ","
 
 
 class Action(object):
@@ -166,7 +165,7 @@ def commit_release(conf, flags, sign):
         # Prepare exclude list.
         if conf[Setting.EXCLUDE_FILES] is not None:
             exclude_opts = ["--exclude=" + e for e in
-                            conf[Setting.EXCLUDE_FILES].split(_DEL_EXCLUDE)]
+                            conf[Setting.EXCLUDE_FILES]]
         else:
             exclude_opts = []
 
@@ -191,7 +190,7 @@ def commit_release(conf, flags, sign):
         if sign:
             if conf[Setting.GPG_KEY_ID] is not None:
                 tag_opt = ["--sign-tags",
-                           "--keyid=" + str(conf[Setting.GPG_KEY_ID])]
+                           "--keyid=" + conf[Setting.GPG_KEY_ID]]
             else:
                 log(flags, "The gpg key id is not set in the " +
                     "configuration file, disabling tag signing.",
