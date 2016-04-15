@@ -10,7 +10,8 @@ from re import findall
 
 from gbputil import verify_create_head_tag, OpError, ConfigError, \
     restore_backup, create_ex_config, add_backup, restore_temp_commit, \
-    create_temp_commit, get_config, get_config_default, DEFAULT_CONFIG_PATH
+    create_temp_commit, get_config, get_config_default, DEFAULT_CONFIG_PATH, \
+    Setting
 from gitutil import get_head_tag_version, commit_changes, switch_branch, \
     GitError, get_next_version, get_latest_tag_version, is_version_lt, \
     get_rep_name_from_url, clean_ignored_files
@@ -36,6 +37,19 @@ _BUILD_CMD = "debuild"
 _EDITOR_CMD = "editor"
 _DEL_EXCLUDE = ","
 
+
+class Action(object):
+    TEST_PKG = 'test-pkg'
+    COMMIT_RELEASE = 'commit-release'
+    UPDATE_CHANGELOG = 'update-changelog'
+    TEST_BUILD = 'test-build'
+    COMMIT_BUILD = 'commit-build'
+    UPLOAD = 'upload'
+    CLONE = 'clone'
+    RESTORE = 'restore'
+    CONFIG = 'config'
+
+
 ####################### Sub Command functions ###########################
 #########################################################################
 
@@ -49,11 +63,11 @@ def test_pkg(conf, flags, bak_dir, bak_name):
     try:
         # Get the tagged version from the release branch.
         latest_release_ver = get_latest_tag_version(
-            conf['releaseBranch'], conf['releaseTagType'])
+            conf[Setting.RELEASE_BRANCH], conf[Setting.RELEASE_TAG_TYPE])
         next_release_ver = get_next_version(latest_release_ver)
         create_ver = verify_create_head_tag(flags,
-                                            conf['releaseBranch'],
-                                            conf['releaseTagType'],
+                                            conf[Setting.RELEASE_BRANCH],
+                                            conf[Setting.RELEASE_TAG_TYPE],
                                             next_release_ver)
         release_ver = create_ver[0]
 
@@ -61,11 +75,11 @@ def test_pkg(conf, flags, bak_dir, bak_name):
         commit_release(conf, flags, False)
 
         # Update the changelog to match upstream version.
-        debian_ver = release_ver + conf['debianVersionSuffix']
+        debian_ver = release_ver + conf[Setting.DEBIAN_VERSION_SUFFIX]
         update_changelog(conf, flags, version=debian_ver, commit=True)
 
         # Test package build.
-        build_pkg(conf, flags, conf['testBuildFlags'])
+        build(conf, flags, conf[Setting.TEST_BUILD_FLAGS])
 
         # Revert changes.
         log(flags, "Reverting changes")
@@ -89,14 +103,15 @@ def commit_release(conf, flags, sign):
     log(flags, "\nCommitting release", TextType.INFO)
 
     # Constants
-    tmp_dir = path.join(_TMP_DIR, conf['packageName'], _TMP_TAR_SUBDIR)
-    archive_path = path.join(tmp_dir, conf['releaseBranch'] + "_archive.tar")
+    tmp_dir = path.join(_TMP_DIR, conf[Setting.PACKAGE_NAME], _TMP_TAR_SUBDIR)
+    archive_path = path.join(tmp_dir,
+                             conf[Setting.RELEASE_BRANCH] + "_archive.tar")
 
     try:
         # Get the tagged version from the release branch.
         create_ver = verify_create_head_tag(flags,
-                                            conf['releaseBranch'],
-                                            conf['releaseTagType'])
+                                            conf[Setting.RELEASE_BRANCH],
+                                            conf[Setting.RELEASE_TAG_TYPE])
         release_ver = create_ver[0]
 
         log(flags, "Selected release version \'" +
@@ -104,10 +119,10 @@ def commit_release(conf, flags, sign):
 
         # Check versions, prepare tarball and import it.
         upstream_ver = get_head_tag_version(
-            conf['upstreamBranch'], conf['upstreamTagType'])
-        source_dir = conf['packageName'] + "-" + release_ver
+            conf[Setting.UPSTREAM_TAG_TYPE], conf[Setting.UPSTREAM_TAG_TYPE])
+        source_dir = conf[Setting.PACKAGE_NAME] + "-" + release_ver
         source_dir_path = path.join(tmp_dir, source_dir)
-        tar_path = path.join(tmp_dir, conf['packageName'] + "_" +
+        tar_path = path.join(tmp_dir, conf[Setting.PACKAGE_NAME] + "_" +
                              release_ver + _ORIG_TAR_FILE_EXT)
 
         # Check that the release version is greater than the upstream version.
@@ -123,48 +138,51 @@ def commit_release(conf, flags, sign):
         # Extract the latest commit to release branch.
         log(flags, "Extracting release version \'" + release_ver +
             "\' from release branch \'" +
-            conf['releaseBranch'] + "\'")
+            conf[Setting.RELEASE_BRANCH] + "\'")
 
         # Prepare exclude list.
-        if conf['excludeFiles'] is not None:
+        if conf[Setting.EXCLUDE_FILES] is not None:
             exclude_opts = ["--exclude=" + e for e in
-                            conf['excludeFiles'].split(_DEL_EXCLUDE)]
+                            conf[Setting.EXCLUDE_FILES].split(_DEL_EXCLUDE)]
         else:
             exclude_opts = []
 
         if not flags['safemode']:
-            exec_cmd(["git", "archive", conf['releaseBranch'], "-o",
+            exec_cmd(["git", "archive", conf[Setting.RELEASE_BRANCH], "-o",
                       archive_path])
             exec_cmd(["tar", "-xf", archive_path, "--directory=" +
-                      source_dir_path, "--exclude-vcs"] + exclude_opts)
+                      source_dir_path, "--exclude-vcs-ignores"] + exclude_opts)
 
         # Create the upstream tarball.
         log(flags, "Making upstream tarball from extracted source files")
         if not flags['safemode']:
             exec_cmd(["tar", "--directory=" + tmp_dir, "-czf", tar_path,
-                      source_dir])
+                      source_dir, "--exclude-vcs"])
 
         # Commit tarball to upstream branch and tag.
         log(flags, "Importing tarball to upstream branch \'" +
-            conf['upstreamBranch'] + "\'")
+            conf[Setting.UPSTREAM_BRANCH] + "\'")
 
         # Check if should sign and gpg key is set.
         tag_opt = []
         if sign:
-            if conf['gpgKeyId'] is not None:
-                tag_opt = ["--sign-tags", "--keyid=" + str(conf['gpgKeyId'])]
+            if conf[Setting.GPG_KEY_ID] is not None:
+                tag_opt = ["--sign-tags",
+                           "--keyid=" + str(conf[Setting.GPG_KEY_ID])]
             else:
-                log(flags, "Your gpg key id is not set in your " +
-                    "gbp-helper.conf, disabling tag signing.",
+                log(flags, "The gpg key id is not set in the " +
+                    "configuration file, disabling tag signing.",
                     TextType.WARNING)
 
-        log(flags, "Merging upstream branch \'" + conf['upstreamBranch'] +
-            "\' into debian branch \'" + conf['debianBranch'] + "\'")
+        log(flags,
+            "Merging upstream branch \'" + conf[Setting.UPSTREAM_BRANCH] +
+            "\' into debian branch \'" + conf[Setting.DEBIAN_BRANCH] + "\'")
         if not flags['safemode']:
             exec_cmd(["gbp", "import-orig", "--no-interactive", "--merge"] +
-                     tag_opt + ["--debian-branch=" + conf['debianBranch'],
-                                "--upstream-branch=" + conf['upstreamBranch'],
-                                tar_path])
+                     tag_opt + [
+                         "--debian-branch=" + conf[Setting.DEBIAN_BRANCH],
+                         "--upstream-branch=" + conf[Setting.UPSTREAM_BRANCH],
+                         tar_path])
 
     except Error as err:
         log_err(flags, err)
@@ -178,10 +196,10 @@ def commit_release(conf, flags, sign):
     log_success(flags)
 
     # Return the name of the upstream tag.
-    return conf['upstreamTagType'] + "/" + release_ver
+    return conf[Setting.UPSTREAM_TAG_TYPE] + "/" + release_ver
 
 
-def build_pkg(conf, flags, build_flags, **opts):
+def build(conf, flags, build_flags, **opts):
     """
     Builds package from the latest debian commit.
     - tag               -- Set to True to tag the debian commit after build.
@@ -203,7 +221,7 @@ def build_pkg(conf, flags, build_flags, **opts):
     if upstream_treeish is None:
         try:
             upstream_ver = get_head_tag_version(
-                conf['upstreamBranch'], conf['upstreamTagType'])
+                conf[Setting.UPSTREAM_BRANCH], conf[Setting.UPSTREAM_TAG_TYPE])
             log(flags, "Building debian package for upstream version \'" +
                 upstream_ver + "\'")
         except Error as err:
@@ -214,8 +232,9 @@ def build_pkg(conf, flags, build_flags, **opts):
             format(upstream_treeish))
 
     # Prepare build.
-    log(flags, "Switching to debian branch \'" + conf['debianBranch'] + "\'")
-    switch_branch(conf['debianBranch'])
+    log(flags,
+        "Switching to debian branch \'" + conf[Setting.DEBIAN_BRANCH] + "\'")
+    switch_branch(conf[Setting.DEBIAN_BRANCH])
 
     try:
         version = exec_cmd(["dpkg-parsechangelog", "--show-field", "Version"])
@@ -223,7 +242,7 @@ def build_pkg(conf, flags, build_flags, **opts):
         log_err(flags, err)
         raise OpError()
 
-    pkg_build_dir = path.join(_BUILD_DIR, conf['packageName'], version)
+    pkg_build_dir = path.join(_BUILD_DIR, conf[Setting.PACKAGE_NAME], version)
     log(flags, "Cleaning old build files in \'" + pkg_build_dir + "\'")
     clean_dir(flags, pkg_build_dir)
 
@@ -232,9 +251,9 @@ def build_pkg(conf, flags, build_flags, **opts):
 
     # Prepare tag signing options.
     if sign_tag:
-        if conf['gpgKeyId'] is not None:
+        if conf[Setting.GPG_KEY_ID] is not None:
             tag_opt += ["--git-sign-tags", "--git-keyid=" +
-                        str(conf['gpgKeyId'])]
+                        str(conf[Setting.GPG_KEY_ID])]
         else:
             log(flags, "Your gpg key id is not set in your " +
                 "gbp-helper.conf, disabling tag signing.",
@@ -249,11 +268,11 @@ def build_pkg(conf, flags, build_flags, **opts):
     sign_build_opt += ["-uc"] if not sign_changes else []
     sign_build_opt += ["-us"] if not sign_source else []
     if sign_changes or sign_source:
-        if conf['gpgKeyId'] is not None:
-            sign_build_opt += ["-k" + conf['gpgKeyId']]
+        if conf[Setting.GPG_KEY_ID] is not None:
+            sign_build_opt += ["-k" + conf[Setting.GPG_KEY_ID]]
         else:
-            log(flags, "Your gpg key id is not set in your " +
-                "gbp-helper.conf, disabling build signing.",
+            log(flags, "The gpg key id is not set in the " +
+                "configuration file, disabling build signing.",
                 TextType.WARNING)
 
     # Prepare build command.
@@ -263,8 +282,8 @@ def build_pkg(conf, flags, build_flags, **opts):
     try:
         if not flags['safemode']:
             exec_cmd(["gbp", "buildpackage"] + tag_opt + upstream_opt +
-                     ["--git-debian-branch=" + conf['debianBranch'],
-                      "--git-upstream-branch=" + conf['upstreamBranch'],
+                     ["--git-debian-branch=" + conf[Setting.DEBIAN_BRANCH],
+                      "--git-upstream-branch=" + conf[Setting.UPSTREAM_BRANCH],
                       "--git-export-dir=" + pkg_build_dir, "--git-builder=" +
                       build_cmd])
 
@@ -319,8 +338,8 @@ def update_changelog(conf, flags, **opts):
         log(flags, "Version not set, using standard format")
         try:
             upstream_ver = get_head_tag_version(
-                conf['upstreamBranch'], conf['upstreamTagType'])
-            debian_ver = upstream_ver + conf['debianVersionSuffix']
+                conf[Setting.UPSTREAM_BRANCH], conf[Setting.UPSTREAM_TAG_TYPE])
+            debian_ver = upstream_ver + conf[Setting.DEBIAN_VERSION_SUFFIX]
             log(flags, "Using version \'" + debian_ver + "\'")
         except Error as err:
             log_err(flags, err)
@@ -329,17 +348,18 @@ def update_changelog(conf, flags, **opts):
         debian_ver = version
         log(flags, "Updating changelog with version \'{}\'".format(debian_ver))
 
-    distribution_opt = (["--distribution=" + conf['distribution']]
-                        if conf['distribution'] is not None else [])
+    distribution_opt = (["--distribution=" + conf[Setting.DISTRIBUTION]]
+                        if conf[Setting.DISTRIBUTION] is not None else [])
     release_opt = (["--release"] if release else [])
 
     try:
-        switch_branch(conf['debianBranch'])
+        switch_branch(conf[Setting.DEBIAN_BRANCH])
         if not flags['safemode']:
             # Update changelog.
             exec_cmd(["gbp", "dch", "--debian-branch=" +
-                      conf['debianBranch'], "--new-version=" + debian_ver,
-                      "--urgency=" + conf['urgency'],
+                      conf[Setting.DEBIAN_BRANCH],
+                      "--new-version=" + debian_ver,
+                      "--urgency=" + conf[Setting.URGENCY],
                       "--spawn-editor=snapshot"] + distribution_opt +
                      release_opt)
 
@@ -350,7 +370,7 @@ def update_changelog(conf, flags, **opts):
         # Check if changes should be committed.
         if commit:
             log(flags, "Committing updated debian/changelog to branch \'" +
-                conf['debianBranch'] + "\'")
+                conf[Setting.DEBIAN_BRANCH] + "\'")
             commit_changes(flags, "Update changelog for " +
                            debian_ver + " release.")
     except Error as err:
@@ -368,13 +388,14 @@ def upload_pkg(conf, flags):
     log(flags, "\nUploading package", TextType.INFO)
 
     # Check if ppa name is set in config.
-    if conf['ppa'] is None:
-        log_err(flags, ConfigError("The value ppaName is not set" +
-                                   " in the config file, aborting upload"))
+    if conf[Setting.PPA_NAME] is None:
+        log_err(flags, ConfigError(
+            "The value {} is not set in the config file, aborting upload".
+                format(Setting.PPA_NAME)))
         raise OpError()
 
     # Set the name of the .changes file and upload.
-    pkg_build_dir = path.join(_BUILD_DIR, conf['packageName'])
+    pkg_build_dir = path.join(_BUILD_DIR, conf[Setting.PACKAGE_NAME])
     changes_paths = get_files_with_extension(pkg_build_dir,
                                              _CHANGES_FILE_EXT)
 
@@ -390,11 +411,12 @@ def upload_pkg(conf, flags):
             raise OpError()
         try:
             if not flags['safemode']:
-                exec_cmd(["dput", "ppa:" + conf['ppa'], changes_paths[0]])
+                exec_cmd(
+                    ["dput", "ppa:" + conf[Setting.PPA_NAME], changes_paths[0]])
         except Error as err:
             log_err(flags, err)
             log(flags, "The package could not be uploaded to ppa:" +
-                conf['ppa'], TextType.ERR)
+                conf[Setting.PPA_NAME], TextType.ERR)
     else:
         log(flags, "Changefile (" + _CHANGES_FILE_EXT + ") not found in " +
             "\'" + pkg_build_dir + "\', aborting upload", TextType.ERR)
@@ -404,12 +426,12 @@ def upload_pkg(conf, flags):
     log_success(flags)
 
 
-def reset_repository(flags, bak_dir):
+def restore_repository(flags, bak_dir):
     """
-    Reset the repository to an earlier backed up state.
+    Restore the repository to an earlier backed up state.
     - bak_dir   -- The backup storage directory.
     """
-    log(flags, "\nResetting repository", TextType.INFO)
+    log(flags, "\nRestoring repository", TextType.INFO)
 
     try:
         restore_backup(flags, bak_dir)
@@ -426,8 +448,9 @@ def clone_source_repository(flags):
     log(flags, "\nCloning remote source repository", TextType.INFO)
 
     # The branch identifiers and keys to create.
-    branches = [('release', 'releaseBranch'), ('upstream', 'upstreamBranch'),
-                ('debian', 'debianBranch')]
+    branches = [('release', Setting.RELEASE_BRANCH),
+                ('upstream', Setting.UPSTREAM_BRANCH),
+                ('debian', Setting.DEBIAN_BRANCH)]
     branch_names = []
 
     try:
@@ -443,11 +466,9 @@ def clone_source_repository(flags):
 
         # Prompt user for the name of the all branches.
         for entry in branches:
-            branch_names.append(prompt_user_input("Enter the name " +
-                                                  "of the " + entry[
-                                                      0] + " branch",
-                                                  True,
-                                                  get_config_default(entry[1])))
+            branch_names.append(prompt_user_input(
+                "Enter the name of the {} branch".format(entry[0]), True,
+                get_config_default(entry[1])))
         # Clone repository.
         log(flags,
             "Cloning from url \'{0}\' and checking out source branch \'{1}\'".
@@ -555,10 +576,10 @@ def execute(flags, args):
             TextType.INFO)
         quit()
 
-    # Determine if action is repository based.
-    rep_action = (action != 'reset' and
-                  action != 'clone-src' and
-                  action != 'create-config')
+    # Determine if action is repository based or if config is needed.
+    rep_action = (action != Action.RESTORE and
+                  action != Action.CLONE and
+                  action != Action.CONFIG)
 
     # Create repository backup.
     bak_dir = path.join(_TMP_DIR, path.basename(getcwd()), _TMP_BAK_SUBDIR)
@@ -587,16 +608,16 @@ def execute(flags, args):
             "\':", TextType.INIT)
         if args.norestore:
             log(flags, "Restore has been disabled (-n), " +
-                "try \'gbp-helper reset\' to restore repository to " +
-                "previous state", TextType.INFO)
+                "try \'gbp-helper {}\' to restore ".format(Action.RESTORE) +
+                "repository to previous state", TextType.INFO)
         elif rep_action:
             # Disable branch restore.
             rep_action = False
             try:
                 restore_backup(flags, bak_dir, name=bak_name)
             except OpError:
-                log(flags, "Restore failed, " +
-                    "try \'gbp-helper reset\' to restore repository to " +
+                log(flags, "Restore failed, try \'gbp-helper {}\'".format(
+                    Action.RESTORE) + " to restore repository to " +
                     "previous state", TextType.INFO)
 
     # Restore initial branch state if action is repository based.
@@ -642,13 +663,6 @@ def exec_init(flags, action, rep_action, config_path):
 
     # Prepare if a sub command is used.
     if action is not None and rep_action:
-        # Try to clean current branch from ignored files.
-        try:
-            log(flags, "Cleaning ignored files from working directory.")
-            clean_ignored_files(flags)
-        except Error:
-            # No .gitignore may be available on the current branch.
-            pass
 
         # Save current branch name and any uncommitted changes.
         try:
@@ -665,6 +679,15 @@ def exec_init(flags, action, rep_action, config_path):
         try:
             # Switch branch to master before trying to read config.
             switch_branch(_MASTER_BRANCH)
+
+            # Try to clean master branch from ignored files.
+            try:
+                log(flags, "Cleaning ignored files from working directory.")
+                clean_ignored_files(flags)
+            except Error:
+                # No .gitignore may be available on the current branch.
+                pass
+
             conf = get_config(config_path)
         except Error as err:
             log_err(flags, err)
@@ -674,24 +697,24 @@ def exec_init(flags, action, rep_action, config_path):
     run_action = not changes_committed
     if changes_committed:
         # For debian branch.
-        if restore_data[0] == conf['debianBranch'] and \
-                (action == 'commit-release' or
-                         action == 'update-changelog' or
-                         action == 'commit-build'):
+        if restore_data[0] == conf[Setting.DEBIAN_BRANCH] and \
+                (action == Action.COMMIT_RELEASE or
+                         action == Action.UPDATE_CHANGELOG or
+                         action == Action.COMMIT_BUILD):
             log(flags, "Commit all changes on debian branch \'" +
-                conf['debianBranch'] + "\' before running " +
+                conf[Setting.DEBIAN_BRANCH] + "\' before running " +
                 "action \'" + action + "\'", TextType.ERR)
         # For release branch.
-        elif restore_data[0] == conf['releaseBranch'] and \
-                (action == 'commit-release'):
+        elif restore_data[0] == conf[Setting.RELEASE_BRANCH] and \
+                (action == Action.COMMIT_RELEASE):
             log(flags, "Please commit all changes on release branch \'" +
-                conf['releaseBranch'] + "\' before running " +
+                conf[Setting.RELEASE_BRANCH] + "\' before running " +
                 "action \'" + action + "\'", TextType.ERR)
         # For upstream branch.
-        elif restore_data[0] == conf['upstreamBranch']:
+        elif restore_data[0] == conf[Setting.UPSTREAM_BRANCH]:
             # Should never happen.
             log(flags, "Uncommitted changes were found on upstream branch " +
-                "\'" + conf['upstreamBranch'] + "\'\nThis should " +
+                "\'" + conf[Setting.UPSTREAM_BRANCH] + "\'\nThis should " +
                 "never happen, please correct before proceeding",
                 TextType.ERR)
         else:
@@ -709,41 +732,41 @@ def exec_action(flags, action, conf, config_path, bak_dir, bak_name=None):
     log(flags, "\nExecuting command: " + action, TextType.INIT)
     try:
         # Build release without committing.
-        if action == 'test-pkg':
+        if action == Action.TEST_PKG:
             test_pkg(conf, flags, bak_dir, bak_name)
 
         # Prepare release.
-        elif action == 'commit-release':
+        elif action == Action.COMMIT_RELEASE:
             commit_release(conf, flags, True)
 
-        # Updates the changelog with set options and commits the changes.
-        elif action == 'update-changelog':
+        # Update the changelog with set options and commit the changes.
+        elif action == Action.UPDATE_CHANGELOG:
             update_changelog(conf, flags, editor=True,
                              commit=True, release=True)
 
         # Build test package.
-        elif action == 'test-build':
-            build_pkg(conf, flags, conf['testBuildFlags'])
+        elif action == Action.TEST_BUILD:
+            build(conf, flags, conf[Setting.TEST_BUILD_FLAGS])
 
         # Build a signed package and tag commit.
-        elif action == 'commit-build':
-            build_pkg(conf, flags, conf['buildFlags'], tag=True,
-                      sign_tag=True, sign_changes=True, sign_source=True)
+        elif action == Action.COMMIT_BUILD:
+            build(conf, flags, conf[Setting.BUILD_FLAGS], tag=True,
+                  sign_tag=True, sign_changes=True, sign_source=True)
 
         # Upload latest build.
-        elif action == 'upload-pkg':
+        elif action == Action.UPLOAD:
             upload_pkg(conf, flags)
 
         # Restore repository to an earlier state.
-        elif action == 'reset':
-            reset_repository(flags, bak_dir)
+        elif action == Action.RESTORE:
+            restore_repository(flags, bak_dir)
 
         # Clone a remote repository and setup the necessary branches.
-        elif action == 'clone-src':
+        elif action == Action.CLONE:
             clone_source_repository(flags)
 
         # Create example config.
-        elif action == 'create-config':
+        elif action == Action.CONFIG:
             create_config(flags, config_path)
 
         # Action was successful.
@@ -781,11 +804,11 @@ def parse_args_and_execute():
 
     # The possible sub commands.
     parser.add_argument('action', nargs='?',
-                        choices=['test-pkg', 'commit-release',
-                                 'update-changelog',
-                                 'test-build', 'commit-build', 'upload-pkg',
-                                 'reset',
-                                 'clone-src', 'create-config'],
+                        choices=[Action.TEST_PKG, Action.COMMIT_RELEASE,
+                                 Action.UPDATE_CHANGELOG,
+                                 Action.TEST_BUILD, Action.COMMIT_BUILD,
+                                 Action.UPLOAD,
+                                 Action.RESTORE, Action.CLONE, Action.CONFIG],
                         help="the main action (see gbp-helper(1)) for details")
 
     # General args.

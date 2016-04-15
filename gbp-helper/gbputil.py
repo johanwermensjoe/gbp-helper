@@ -217,8 +217,8 @@ def get_config(config_path):
         conf[key] = val
 
     # Handle special fields.
-    if conf['packageName'] is None:
-        conf['packageName'] = path.basename(getcwd())
+    if conf[Setting.PACKAGE_NAME] is None:
+        conf[Setting.PACKAGE_NAME] = path.basename(getcwd())
 
     return conf
 
