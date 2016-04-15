@@ -31,11 +31,14 @@ _BUILD_DIR = "../build-area"
 _TMP_DIR = "/tmp"
 _TMP_TAR_SUBDIR = "tarball"
 _TMP_BAK_SUBDIR = "backup"
+_SOURCE_CHANGES_FILE_EXT = "source.changes"
 _CHANGES_FILE_EXT = ".changes"
 _ORIG_TAR_FILE_EXT = ".orig.tar.gz"
 _MASTER_BRANCH = "master"
 _BUILD_CMD = "debuild"
 _EDITOR_CMD = "editor"
+_BUILD_NAME = "final"
+_TEST_BUILD_NAME = "test"
 
 
 class Action(object):
@@ -105,16 +108,14 @@ def test_pkg(conf, flags):
         update_changelog(conf, flags, version=debian_ver, commit=True)
 
         # Test package build.
-        build(conf, flags, conf[Setting.TEST_BUILD_FLAGS])
+        build(conf, flags, conf[Setting.TEST_BUILD_FLAGS],
+              build_name=_TEST_BUILD_NAME)
 
         # Revert changes.
         log(flags, "Reverting changes")
     except Error as err:
         log_err(flags, err)
         raise OpError()
-
-    # Print success message.
-    log_success(flags)
 
 
 def commit_release(conf, flags, sign):
@@ -293,6 +294,8 @@ def update_changelog(conf, flags, **opts):
 def build(conf, flags, build_flags, **opts):
     """
     Builds package from the latest debian commit.
+    - build_flags       -- build flags to use with the build command
+    - build_name        -- the build sub directory name
     - tag               -- Set to True to tag the debian commit after build.
     - sign-tag          -- Set to True to sign the created tag.
     - upstream_treeish  -- Set to <treeish> to set the upstream tarball source.
@@ -300,6 +303,7 @@ def build(conf, flags, build_flags, **opts):
     - sign_changes      -- Set to True to sign the .changes file.
     - sign_source       -- Set to True to sign the .source file.
     """
+    build_name = opts.get('build_name', None)
     tag = opts.get('tag', False)
     sign_tag = opts.get('sign-tag', False)
     upstream_treeish = opts.get('upstream_treeish', None)
@@ -334,6 +338,8 @@ def build(conf, flags, build_flags, **opts):
         raise OpError()
 
     pkg_build_dir = path.join(_BUILD_DIR, conf[Setting.PACKAGE_NAME], version)
+    if build_name is not None:
+        pkg_build_dir = path.join(pkg_build_dir, build_name)
     log(flags, "Cleaning old build files in \'" + pkg_build_dir + "\'")
     clean_dir(flags, pkg_build_dir)
 
@@ -424,9 +430,11 @@ def upload_pkg(conf, flags):
     # Set the name of the .changes file and upload.
     pkg_build_dir = path.join(_BUILD_DIR, conf[Setting.PACKAGE_NAME])
     changes_paths = get_files_with_extension(pkg_build_dir,
-                                             _CHANGES_FILE_EXT)
+                                             _SOURCE_CHANGES_FILE_EXT)
 
-    # Sort the files on version.
+    # Filter out test builds and sort the files on version.
+    changes_paths = [s for s in changes_paths if
+                     path.basename(path.dirname(s)) == _BUILD_NAME]
     changes_paths.sort(
         key=lambda s: findall(r'''\d+''', path.basename(s).split('_')[1]),
         reverse=True)
@@ -439,14 +447,16 @@ def upload_pkg(conf, flags):
         try:
             if not flags['safemode']:
                 exec_cmd(
-                    ["dput", "ppa:" + conf[Setting.PPA_NAME], changes_paths[0]])
+                    ["dput", "ppa:{}".format(conf[Setting.PPA_NAME]),
+                     changes_paths[0]])
         except Error as err:
             log_err(flags, err)
-            log(flags, "The package could not be uploaded to ppa:" +
-                conf[Setting.PPA_NAME], TextType.ERR)
+            log(flags, "The package could not be uploaded to ppa:{}".format(
+                conf[Setting.PPA_NAME]), TextType.ERR)
     else:
-        log(flags, "Changefile (" + _CHANGES_FILE_EXT + ") not found in " +
-            "\'" + pkg_build_dir + "\', aborting upload", TextType.ERR)
+        log(flags,
+            "Changefile ({}) not found in \'{}\', aborting upload".format(
+                _SOURCE_CHANGES_FILE_EXT, pkg_build_dir), TextType.ERR)
         raise OpError()
 
     # Print success message.
@@ -749,17 +759,17 @@ def exec_action(flags, action, conf, config_path, bak_dir):
 
     # Update the changelog with set options and commit the changes.
     elif action == Action.UPDATE_CHANGELOG:
-        update_changelog(conf, flags, editor=True,
-                         commit=True, release=True)
+        update_changelog(conf, flags, editor=True, commit=True, release=True)
 
     # Build test package.
     elif action == Action.TEST_BUILD:
-        build(conf, flags, conf[Setting.TEST_BUILD_FLAGS])
+        build(conf, flags, conf[Setting.TEST_BUILD_FLAGS],
+              build_name=_TEST_BUILD_NAME)
 
     # Build a signed package and tag commit.
     elif action == Action.COMMIT_BUILD:
-        build(conf, flags, conf[Setting.BUILD_FLAGS], tag=True,
-              sign_tag=True, sign_changes=True, sign_source=True)
+        build(conf, flags, conf[Setting.BUILD_FLAGS], build_name=_BUILD_NAME,
+              tag=True, sign_tag=True, sign_changes=True, sign_source=True)
 
     # Upload latest build.
     elif action == Action.UPLOAD:
