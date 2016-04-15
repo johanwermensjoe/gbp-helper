@@ -167,7 +167,8 @@ def create_ex_config(flags, config_path, preset_keys=None):
                     val = preset_keys[key]
                 else:
                     val = setting.default
-                config[setting.section][key] = str(val)
+                config[setting.section][key] = str(
+                    val) if val is not None else ""
 
             # Writing configuration file to "configPath".
             if not flags['safemode']:
@@ -201,7 +202,7 @@ def get_config(config_path):
         except KeyError:
             val = None
         # Check if required but non existent.
-        if val is None:
+        if val is None or val == "":
             # Use default value instead (can be None).
             val = setting.default
             # Check if required in config.
