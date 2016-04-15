@@ -251,7 +251,7 @@ def get_files_with_extension(dir_path, extension):
     for path_, _, files in walk(dir_path):
         for file_ in files:
             if file_.endswith(extension):
-                ext_files += [path.join(path_, file_)]
+                ext_files.append(path.join(path_, file_))
     return ext_files
 
 
