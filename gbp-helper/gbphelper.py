@@ -14,7 +14,7 @@ from gbputil import verify_create_head_tag, OpError, ConfigError, \
     Setting
 from gitutil import get_head_tag_version, commit_changes, switch_branch, \
     GitError, get_next_version, get_latest_tag_version, is_version_lt, \
-    get_rep_name_from_url, clean_ignored_files
+    get_rep_name_from_url, clean_ignored_files, get_branch
 from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
     exec_cmd, get_files_with_extension, clean_dir, \
     log_success, log_err, remove_dir, CommandError, exec_editor, \
@@ -50,10 +50,36 @@ class Action(object):
     CONFIG = 'config'
 
 
+class ActionConf(object):
+    def __init__(self, is_repository_based=True, restore=False,
+                 critical_branches=None):
+        if critical_branches is None:
+            critical_branches = []
+        self.is_repository_based = is_repository_based
+        self.restore_backup = restore
+        self.critical_branches = critical_branches
+
+
+_ACTION_CONF = {
+    Action.TEST_PKG: ActionConf(True, True, None),
+    Action.COMMIT_RELEASE: ActionConf(True, False, [Setting.RELEASE_BRANCH,
+                                                    Setting.UPSTREAM_BRANCH,
+                                                    Setting.DEBIAN_BRANCH]),
+    Action.UPDATE_CHANGELOG: ActionConf(True, False, [Setting.DEBIAN_BRANCH]),
+    Action.TEST_BUILD: ActionConf(True, False, None),
+    Action.COMMIT_BUILD: ActionConf(True, False, [Setting.DEBIAN_BRANCH]),
+    Action.UPLOAD: ActionConf(True, False, None),
+    Action.CLONE: ActionConf(False, False, None),
+    Action.RESTORE: ActionConf(False, False, None),
+    Action.CONFIG: ActionConf(False, False, None),
+
+}
+
+
 ####################### Sub Command functions ###########################
 #########################################################################
 
-def test_pkg(conf, flags, bak_dir, bak_name):
+def test_pkg(conf, flags):
     """
     Prepares a release and builds the package
     but reverts all changes after, leaving the repository unchanged.
@@ -83,9 +109,6 @@ def test_pkg(conf, flags, bak_dir, bak_name):
 
         # Revert changes.
         log(flags, "Reverting changes")
-
-        # Restore from backup.
-        restore_backup(flags, bak_dir, name=bak_name)
     except Error as err:
         log_err(flags, err)
         raise OpError()
@@ -538,7 +561,7 @@ def clone_source_repository(flags):
         commit_changes(flags, "Initial release commit.")
     except Error as err:
         log_err(flags, err)
-        quit()
+        raise OpError()
 
     # Print success message.
     log_success(flags)
@@ -553,7 +576,7 @@ def create_config(flags, config_path, preset_keys=None):
         create_ex_config(flags, config_path, preset_keys)
     except Error as err:
         log_err(flags, err)
-        quit()
+        raise OpError()
 
     # Print success message.
     log_success(flags)
@@ -570,21 +593,17 @@ def execute(flags, args):
     # Switch to target directory.
     chdir(args.dir)
 
+    # Check that an action is selected.
     action = args.action
     if action is None:
         log(flags, "No action selected, see \"gbp-helper --help\"",
             TextType.INFO)
         quit()
 
-    # Determine if action is repository based or if config is needed.
-    rep_action = (action != Action.RESTORE and
-                  action != Action.CLONE and
-                  action != Action.CONFIG)
-
     # Create repository backup.
     bak_dir = path.join(_TMP_DIR, path.basename(getcwd()), _TMP_BAK_SUBDIR)
     bak_name = None
-    if rep_action:
+    if _ACTION_CONF[action].is_repository_based:
         try:
             log(flags, "Saving backup of repository", TextType.INFO)
             bak_name = add_backup(flags, bak_dir, action)
@@ -592,27 +611,16 @@ def execute(flags, args):
             log_err(flags, err)
             quit()
 
-    # Execute initiation phase.
-    init_data = exec_init(flags, action, rep_action, args.config)
+    try:
+        # Execute initiation phase.
+        init_data = exec_init(flags, action, args.config)
 
-    # Execute action if allowed.
-    if init_data[0]:
-        action_ok = exec_action(flags, action, init_data[1],
-                                args.config, bak_dir, bak_name)
-    else:
-        action_ok = False
+        # Execute action if allowed.
+        if init_data[0]:
+            exec_action(flags, action, init_data[1], args.config, bak_dir)
 
-    # Force a backup restore if command has failed.
-    if not action_ok:
-        log(flags, "\nError recovery for action \'" + action +
-            "\':", TextType.INIT)
-        if args.norestore:
-            log(flags, "Restore has been disabled (-n), " +
-                "try \'gbp-helper {}\' to restore ".format(Action.RESTORE) +
-                "repository to previous state", TextType.INFO)
-        elif rep_action:
-            # Disable branch restore.
-            rep_action = False
+        # Restore if required by action.
+        if _ACTION_CONF[action].restore_backup:
             try:
                 restore_backup(flags, bak_dir, name=bak_name)
             except OpError:
@@ -620,14 +628,29 @@ def execute(flags, args):
                     Action.RESTORE) + " to restore repository to " +
                     "previous state", TextType.INFO)
 
-    # Restore initial branch state if action is repository based.
-    if rep_action:
-        try:
-            log(flags, "Restoring initial branch state", TextType.INFO)
-            restore_temp_commit(flags, init_data[2])
-        except Error:
-            log(flags, "Could not switch back to initial branch state",
-                TextType.ERR)
+        # Reset if action is repository based (temp commit was made).
+        elif _ACTION_CONF[action].is_repository_based:
+            try:
+                log(flags, "Restoring initial branch state", TextType.INFO)
+                restore_temp_commit(flags, init_data[2])
+            except Error:
+                log(flags, "Could not switch back to initial branch state",
+                    TextType.ERR)
+    except OpError:
+        # Force a backup restore if command has failed.
+        log(flags, "\nError recovery for action \'" + action +
+            "\':", TextType.INIT)
+        if args.norestore:
+            log(flags, "Restore has been disabled (-n), " +
+                "try \'gbp-helper {}\' to restore ".format(Action.RESTORE) +
+                "repository to previous state", TextType.INFO)
+        elif _ACTION_CONF[action].is_repository_based:
+            try:
+                restore_backup(flags, bak_dir, name=bak_name)
+            except OpError:
+                log(flags, "Restore failed, try \'gbp-helper {}\'".format(
+                    Action.RESTORE) + " to restore repository to " +
+                    "previous state", TextType.INFO)
 
 
 def exec_options(args, flags):
@@ -646,7 +669,7 @@ def exec_options(args, flags):
         log(flags, "Safemode enabled, not changing any files", TextType.INFO)
 
 
-def exec_init(flags, action, rep_action, config_path):
+def exec_init(flags, action, config_path):
     """
     Executes the initiation phase.
     Returns a tuple of:
@@ -657,12 +680,12 @@ def exec_init(flags, action, rep_action, config_path):
     """
 
     # Initialize return values.
-    changes_committed = False
+    run_action = True
     conf = None
     restore_data = None
 
     # Prepare if a sub command is used.
-    if action is not None and rep_action:
+    if _ACTION_CONF[action].is_repository_based:
 
         # Save current branch name and any uncommitted changes.
         try:
@@ -672,7 +695,7 @@ def exec_init(flags, action, rep_action, config_path):
             changes_committed = restore_data[2] is not None
         except Error as err:
             log_err(flags, err)
-            quit()
+            raise OpError()
 
         # Pre load config, initialize to 'None' for no-config action.
         log(flags, "Reading config file", TextType.INFO)
@@ -691,89 +714,64 @@ def exec_init(flags, action, rep_action, config_path):
             conf = get_config(config_path)
         except Error as err:
             log_err(flags, err)
-            quit()
+            raise OpError()
 
-    # Check for command conflicts with uncommitted changes.
-    run_action = not changes_committed
-    if changes_committed:
-        # For debian branch.
-        if restore_data[0] == conf[Setting.DEBIAN_BRANCH] and \
-                (action == Action.COMMIT_RELEASE or
-                         action == Action.UPDATE_CHANGELOG or
-                         action == Action.COMMIT_BUILD):
-            log(flags, "Commit all changes on debian branch \'" +
-                conf[Setting.DEBIAN_BRANCH] + "\' before running " +
-                "action \'" + action + "\'", TextType.ERR)
-        # For release branch.
-        elif restore_data[0] == conf[Setting.RELEASE_BRANCH] and \
-                (action == Action.COMMIT_RELEASE):
-            log(flags, "Please commit all changes on release branch \'" +
-                conf[Setting.RELEASE_BRANCH] + "\' before running " +
-                "action \'" + action + "\'", TextType.ERR)
-        # For upstream branch.
-        elif restore_data[0] == conf[Setting.UPSTREAM_BRANCH]:
-            # Should never happen.
-            log(flags, "Uncommitted changes were found on upstream branch " +
-                "\'" + conf[Setting.UPSTREAM_BRANCH] + "\'\nThis should " +
-                "never happen, please correct before proceeding",
-                TextType.ERR)
-        else:
-            run_action = True
+        # Check for command conflicts with uncommitted changes.
+        if changes_committed:
+            if get_branch() in [conf[b] for b in
+                                _ACTION_CONF[action].critical_branches]:
+                log(flags, "Please commit all changes on branch \'" +
+                    get_branch() + "\' before running " +
+                    "action \'" + action + "\'", TextType.ERR)
+                run_action = False
 
     return run_action, conf, restore_data
 
 
-def exec_action(flags, action, conf, config_path, bak_dir, bak_name=None):
+def exec_action(flags, action, conf, config_path, bak_dir):
     """
     Executes the given action.
     Returns True if successful, False otherwise.
     """
 
     log(flags, "\nExecuting command: " + action, TextType.INIT)
-    try:
-        # Build release without committing.
-        if action == Action.TEST_PKG:
-            test_pkg(conf, flags, bak_dir, bak_name)
+    # Build release without committing.
+    if action == Action.TEST_PKG:
+        test_pkg(conf, flags)
 
-        # Prepare release.
-        elif action == Action.COMMIT_RELEASE:
-            commit_release(conf, flags, True)
+    # Prepare release.
+    elif action == Action.COMMIT_RELEASE:
+        commit_release(conf, flags, True)
 
-        # Update the changelog with set options and commit the changes.
-        elif action == Action.UPDATE_CHANGELOG:
-            update_changelog(conf, flags, editor=True,
-                             commit=True, release=True)
+    # Update the changelog with set options and commit the changes.
+    elif action == Action.UPDATE_CHANGELOG:
+        update_changelog(conf, flags, editor=True,
+                         commit=True, release=True)
 
-        # Build test package.
-        elif action == Action.TEST_BUILD:
-            build(conf, flags, conf[Setting.TEST_BUILD_FLAGS])
+    # Build test package.
+    elif action == Action.TEST_BUILD:
+        build(conf, flags, conf[Setting.TEST_BUILD_FLAGS])
 
-        # Build a signed package and tag commit.
-        elif action == Action.COMMIT_BUILD:
-            build(conf, flags, conf[Setting.BUILD_FLAGS], tag=True,
-                  sign_tag=True, sign_changes=True, sign_source=True)
+    # Build a signed package and tag commit.
+    elif action == Action.COMMIT_BUILD:
+        build(conf, flags, conf[Setting.BUILD_FLAGS], tag=True,
+              sign_tag=True, sign_changes=True, sign_source=True)
 
-        # Upload latest build.
-        elif action == Action.UPLOAD:
-            upload_pkg(conf, flags)
+    # Upload latest build.
+    elif action == Action.UPLOAD:
+        upload_pkg(conf, flags)
 
-        # Restore repository to an earlier state.
-        elif action == Action.RESTORE:
-            restore_repository(flags, bak_dir)
+    # Restore repository to an earlier state.
+    elif action == Action.RESTORE:
+        restore_repository(flags, bak_dir)
 
-        # Clone a remote repository and setup the necessary branches.
-        elif action == Action.CLONE:
-            clone_source_repository(flags)
+    # Clone a remote repository and setup the necessary branches.
+    elif action == Action.CLONE:
+        clone_source_repository(flags)
 
-        # Create example config.
-        elif action == Action.CONFIG:
-            create_config(flags, config_path)
-
-        # Action was successful.
-        return True
-
-    except OpError:
-        return False
+    # Create example config.
+    elif action == Action.CONFIG:
+        create_config(flags, config_path)
 
 
 ########################## Argument Parsing #############################
