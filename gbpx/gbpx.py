@@ -17,7 +17,7 @@ from gbpxutil import verify_create_head_tag, OpError, ConfigError, \
     Setting
 from gitutil import get_head_tag_version, commit_changes, switch_branch, \
     GitError, get_next_version, get_latest_tag_version, is_version_lt, \
-    get_rep_name_from_url, clean_ignored_files, get_branch
+    get_rep_name_from_url, clean_repository, get_branch
 from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
     exec_cmd, get_files_with_extension, clean_dir, \
     log_success, log_err, remove_dir, CommandError, exec_editor, \
@@ -305,7 +305,7 @@ def _exec_init(flags, action, config_path):
                 try:
                     log(flags,
                         "\nCleaning ignored files from working directory.")
-                    clean_ignored_files(flags)
+                    clean_repository(flags)
                 except Error:
                     # No .gitignore may be available on the current branch.
                     pass

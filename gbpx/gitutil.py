@@ -351,11 +351,12 @@ def tag_head(flags, branch, tag):
                        "and may already exist", "tag")
 
 
-def clean_ignored_files(flags):
-    """ Cleans files matched by a .gitignore file. """
+def clean_repository(flags):
+    """ Cleans untracked files and files matched by a .gitignore file. """
     try:
         if not flags[Flag.SAFEMODE]:
-            exec_cmd(["git", "clean", "-Xfd"])
+            exec_cmd(["git", "clean", "-fd"])
+            exec_cmd(["git", "clean", "-fX"])
     except CommandError:
         raise GitError("Could not clean ignored files", "clean")
 
