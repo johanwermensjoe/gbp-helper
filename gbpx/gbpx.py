@@ -8,6 +8,8 @@ from glob import glob
 from os import path, chdir, getcwd
 from re import findall
 
+from apt_pkg import upstream_version
+
 from gbpxargs import Flag, Option, Action
 from gbpxutil import verify_create_head_tag, OpError, ConfigError, \
     restore_backup, create_ex_config, add_backup, restore_temp_commit, \
@@ -19,7 +21,7 @@ from gitutil import get_head_tag_version, commit_changes, switch_branch, \
 from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
     exec_cmd, get_files_with_extension, clean_dir, \
     log_success, log_err, remove_dir, CommandError, exec_editor, \
-    prompt_user_yn, exec_piped_cmds, remove_file
+    prompt_user_yn, exec_piped_cmds, remove_file, line_break
 
 ############################## Constants ################################
 #########################################################################
@@ -29,7 +31,7 @@ __version__ = "0.5"
 _GIT_IGNORE_PATH = ".gitignore"
 _CHANGELOG_PATH = "debian/changelog"
 _BUILD_DIR = "../build-area"
-_TMP_DIR = "/tmp"
+_TMP_DIR = "/tmp/gbpx"
 _TMP_TAR_SUBDIR = "tarball"
 _TMP_BAK_SUBDIR = "backup"
 _SOURCE_CHANGES_FILE_EXT = "source.changes"
@@ -59,12 +61,13 @@ _ACTION_CONF = {
     Action.TEST_PKG: _ActionConf(True, True, True, None),
     Action.COMMIT_RELEASE: _ActionConf(True, True, False,
                                        [Setting.RELEASE_BRANCH,
-                                       Setting.UPSTREAM_BRANCH,
-                                       Setting.DEBIAN_BRANCH]),
+                                        Setting.UPSTREAM_BRANCH,
+                                        Setting.DEBIAN_BRANCH]),
     Action.UPDATE_CHANGELOG: _ActionConf(True, True, False,
                                          [Setting.DEBIAN_BRANCH]),
     Action.TEST_BUILD: _ActionConf(True, True, False, None),
-    Action.COMMIT_BUILD: _ActionConf(True, True, False, [Setting.DEBIAN_BRANCH]),
+    Action.COMMIT_BUILD: _ActionConf(True, True, False,
+                                     [Setting.DEBIAN_BRANCH]),
     Action.UPLOAD: _ActionConf(True, False, False, None),
     Action.CLONE: _ActionConf(False, False, False, None),
     Action.RESTORE: _ActionConf(False, False, False, None),
@@ -176,7 +179,7 @@ def _parse_args_and_execute():
 def _execute(flags, options, action):
     """
     Executes the main program phases.
-        :param flags: run flags
+        :param flags:
         :type flags: dict
         :param options: options
         :type options: dict
@@ -202,13 +205,16 @@ def _execute(flags, options, action):
         log(flags, "No action selected, see \"gbpx --help\"",
             TextType.INFO)
         quit()
+    else:
+        log(flags, "Executing command: {}".format(action.value),
+            TextType.INIT)
 
     # Create repository backup.
-    bak_dir = path.join(_TMP_DIR, path.basename(getcwd()), _TMP_BAK_SUBDIR)
+    bak_dir = path.join(_TMP_DIR, _TMP_BAK_SUBDIR, path.basename(getcwd()))
     bak_name = None
     if _ACTION_CONF[action].is_repository_based:
         try:
-            log(flags, "Saving backup of repository", TextType.INFO)
+            log(flags, "\nSaving backup of repository", TextType.INFO)
             bak_name = add_backup(flags, bak_dir, name=action.value)
         except OpError as err:
             log_err(flags, err)
@@ -280,7 +286,7 @@ def _exec_init(flags, action, config_path):
 
         # Save current branch name and any uncommitted changes.
         try:
-            log(flags, "Saving initial state to restore after execution",
+            log(flags, "\nSaving initial state to restore after execution",
                 TextType.INFO)
             restore_data = create_temp_commit(flags)
             changes_committed = restore_data[2] is not None
@@ -289,7 +295,7 @@ def _exec_init(flags, action, config_path):
             raise OpError()
 
         # Pre load config, initialize to 'None' for no-config action.
-        log(flags, "Reading config file", TextType.INFO)
+        log(flags, "\nReading config file", TextType.INFO)
         try:
             # Switch branch to master before trying to read config.
             switch_branch(_MASTER_BRANCH)
@@ -297,7 +303,8 @@ def _exec_init(flags, action, config_path):
             if _ACTION_CONF[action].clean:
                 # Try to clean master branch from ignored files.
                 try:
-                    log(flags, "Cleaning ignored files from working directory.")
+                    log(flags,
+                        "\nCleaning ignored files from working directory.")
                     clean_ignored_files(flags)
                 except Error:
                     # No .gitignore may be available on the current branch.
@@ -325,8 +332,7 @@ def _exec_action(flags, action, conf, config_path, bak_dir):
     Executes the given action.
     Returns True if successful, False otherwise.
     """
-
-    log(flags, "\nExecuting command: " + action.value, TextType.INIT)
+    line_break(flags)
     # Build release without committing.
     if action == Action.TEST_PKG:
         _test_pkg(conf, flags)
@@ -374,7 +380,7 @@ def _test_pkg(conf, flags):
     Prepares a release and builds the package
     but reverts all changes after, leaving the repository unchanged.
     """
-    log(flags, "\nTesting package", TextType.INFO)
+    log(flags, "Testing package", TextType.INFO)
 
     try:
         # Get the tagged version from the release branch.
@@ -411,10 +417,10 @@ def _commit_release(conf, flags, sign):
     upstream and merging with debian. Also tags the upstrem commit.
     Returns the tag name on success.
     """
-    log(flags, "\nCommitting release", TextType.INFO)
+    log(flags, "Committing release", TextType.INFO)
 
     # Constants
-    tmp_dir = path.join(_TMP_DIR, conf[Setting.PACKAGE_NAME], _TMP_TAR_SUBDIR)
+    tmp_dir = path.join(_TMP_DIR, _TMP_TAR_SUBDIR, conf[Setting.PACKAGE_NAME])
     archive_path = path.join(tmp_dir,
                              conf[Setting.RELEASE_BRANCH] + "_archive.tar")
 
@@ -429,15 +435,20 @@ def _commit_release(conf, flags, sign):
             release_ver + "\' for upstream commit")
 
         # Check versions, prepare tarball and import it.
-        upstream_ver = get_head_tag_version(
-            conf[Setting.UPSTREAM_TAG_TYPE], conf[Setting.UPSTREAM_TAG_TYPE])
+        try:
+            upstream_ver = get_head_tag_version(conf[Setting.UPSTREAM_TAG_TYPE],
+                                                conf[Setting.UPSTREAM_TAG_TYPE])
+        except GitError:
+            # No tag was detected.
+            upstream_ver = None
         source_dir = conf[Setting.PACKAGE_NAME] + "-" + release_ver
         source_dir_path = path.join(tmp_dir, source_dir)
         tar_path = path.join(tmp_dir, conf[Setting.PACKAGE_NAME] + "_" +
                              release_ver + _ORIG_TAR_FILE_EXT)
 
         # Check that the release version is greater than the upstream version.
-        if not is_version_lt(upstream_ver, release_ver):
+        if upstream_ver is not None \
+                and not is_version_lt(upstream_ver, release_ver):
             raise GitError("Release version is less than " +
                            "upstream version, aborting")
 
@@ -527,7 +538,7 @@ def _update_changelog(conf, flags, **opts):
     commit = opts.get('commit', False)
     release = opts.get('release', False)
 
-    log(flags, "\nUpdating changelog", TextType.INFO)
+    log(flags, "Updating changelog", TextType.INFO)
 
     # Build and without tagging and do lintian checks.
     log(flags, "Updating changelog to new version")
@@ -597,7 +608,7 @@ def _build(conf, flags, build_flags, **opts):
     sign_changes = opts.get('sign_changes', False)
     sign_source = opts.get('sign_source', False)
 
-    log(flags, "\nBuilding package", TextType.INFO)
+    log(flags, "Building package", TextType.INFO)
 
     # Check if treeish is used for upstream.
     if upstream_treeish is None:
@@ -705,7 +716,7 @@ def _upload_pkg(conf, flags):
     """
     Uploads the latest build to the ppa set in the config file.
     """
-    log(flags, "\nUploading package", TextType.INFO)
+    log(flags, "Uploading package", TextType.INFO)
 
     # Check if ppa name is set in config.
     if conf[Setting.PPA_NAME] is None:
@@ -755,7 +766,7 @@ def _restore_repository(flags, bak_dir):
     Restore the repository to an earlier backed up state.
     - bak_dir   -- The backup storage directory.
     """
-    log(flags, "\nRestoring repository", TextType.INFO)
+    log(flags, "Restoring repository", TextType.INFO)
 
     try:
         restore_backup(flags, bak_dir)
@@ -769,7 +780,7 @@ def _restore_repository(flags, bak_dir):
 
 def _clone_source_repository(flags, config_path):
     """ Clones a remote repository and creates the proper branches. """
-    log(flags, "\nCloning remote source repository", TextType.INFO)
+    log(flags, "Cloning remote source repository", TextType.INFO)
 
     # The branch identifiers and keys to create.
     branches = [('release', Setting.RELEASE_BRANCH),
@@ -870,7 +881,7 @@ def _clone_source_repository(flags, config_path):
 
 def _create_config(flags, config_path, preset_keys=None):
     """ Creates example config. """
-    log(flags, "\nCreating example config file", TextType.INFO)
+    log(flags, "Creating example config file", TextType.INFO)
 
     try:
         log(flags, "Config file is written to " + config_path)

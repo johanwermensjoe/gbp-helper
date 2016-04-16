@@ -109,6 +109,16 @@ def log(flags, msg, type_=TextType.STD):
             print(msg)
 
 
+def line_break(flags):
+    """
+    Print a line break.
+        :param flags:
+        :type flags: dict
+    """
+    if not flags[Flag.QUIET]:
+        print("")
+
+
 def log_err(flags, error):
     """
     Prints a formatted string from an error of the Error class.
@@ -302,10 +312,10 @@ def move_file_dir(flags, old_path, new_path):
                 rename(old_path, new_path)
 
 
-def create_file(flags, file_path, content):
+def create_file(flags, file_path, content=None):
     """
     Create a new file, skipp if file exists.
-        :param flags: run flags
+        :param flags:
         :type flags: dict
         :param file_path: file to create
         :type file_path: str
@@ -318,7 +328,7 @@ def create_file(flags, file_path, content):
         if dir_path != "":
             mkdirs(flags, dir_path)
         with open(file_path, "w+") as file_:
-            file_.write(content)
+            file_.write(content if content is not None else "")
 
 
 def prompt_user_input(prompt, allow_empty=False, default=None):

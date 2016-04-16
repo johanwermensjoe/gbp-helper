@@ -229,7 +229,7 @@ def get_head_commit(branch):
 def init_repository(flags, dir_path):
     """
     Initiate a git repository.
-        :param flags: run flags
+        :param flags:
         :type flags: dict
         :param dir_path: path of the repository to initiate
         :type dir_path: str
@@ -245,7 +245,7 @@ def init_repository(flags, dir_path):
 def create_branch(flags, branch):
     """
     Create a branch from the current.
-        :param flags: run flags
+        :param flags:
         :type flags: dict
         :param branch: the branch to create
         :type branch: str
