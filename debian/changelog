@@ -1,3 +1,9 @@
+gbpx (0.6-0~ppa1) trusty; urgency=low
+
+  * Imported Upstream version 0.6
+
+ -- Johan Wermensjö <johanwermensjoe@gmail.com>  Sat, 16 Apr 2016 22:59:31 +0200
+
 gbpx (0.5-0~ppa1) trusty; urgency=low
 
   * Removed unnecessary deps.
