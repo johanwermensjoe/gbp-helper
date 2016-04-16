@@ -8,8 +8,6 @@ from glob import glob
 from os import path, chdir, getcwd
 from re import findall
 
-from apt_pkg import upstream_version
-
 from gbpxargs import Flag, Option, Action
 from gbpxutil import verify_create_head_tag, OpError, ConfigError, \
     restore_backup, create_ex_config, add_backup, restore_temp_commit, \
@@ -234,7 +232,7 @@ def _execute(flags, options, action):
             try:
                 restore_backup(flags, bak_dir, name=bak_name)
             except OpError:
-                log(flags, "Restore failed, try \'gbpx {}\'".format(
+                log(flags, "Restore failed, see \'gbpx {}\'".format(
                     Action.RESTORE) + " to restore repository to " +
                     "previous state", TextType.INFO)
 
@@ -253,13 +251,13 @@ def _execute(flags, options, action):
         if _ACTION_CONF[action].is_repository_based:
             if options[Option.NO_RESTORE]:
                 log(flags, "Restore has been disabled (-n), " +
-                    "try \'gbpx {}\' to restore ".format(Action.RESTORE) +
+                    "see \'gbpx {}\' to restore ".format(Action.RESTORE) +
                     "repository to previous state", TextType.INFO)
             else:
                 try:
                     restore_backup(flags, bak_dir, name=bak_name)
                 except OpError:
-                    log(flags, "Restore failed, try \'gbpx {}\'".format(
+                    log(flags, "Restore failed, see \'gbpx {}\'".format(
                         Action.RESTORE) + " to restore repository to " +
                         "previous state", TextType.INFO)
         else:
@@ -633,6 +631,14 @@ def _build(conf, flags, build_flags, **opts):
         version = exec_cmd(["dpkg-parsechangelog", "--show-field", "Version"])
     except Error as err:
         log_err(flags, err)
+        raise OpError()
+
+    # Check if changelog has the correct version.
+    if not upstream_ver in version:
+        log(flags, "The upstream version \'{}\'".format(upstream_ver) +
+            " does not match the changelog version \'{}\'\n".format(version) +
+            ", see gbpx {} to update before building".
+            format(Action.UPDATE_CHANGELOG), TextType.ERR)
         raise OpError()
 
     pkg_build_dir = path.join(_BUILD_DIR, conf[Setting.PACKAGE_NAME], version)
