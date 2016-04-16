@@ -8,6 +8,7 @@ from glob import glob
 from os import path, chdir, getcwd
 from re import findall
 
+from gbpxargs import Flag, Option, Action
 from gbpxutil import verify_create_head_tag, OpError, ConfigError, \
     restore_backup, create_ex_config, add_backup, restore_temp_commit, \
     create_temp_commit, get_config, get_config_default, DEFAULT_CONFIG_PATH, \
@@ -41,48 +42,334 @@ _BUILD_NAME = "final"
 _TEST_BUILD_NAME = "test"
 
 
-class Action(object):
-    TEST_PKG = 'test-pkg'
-    COMMIT_RELEASE = 'commit-release'
-    UPDATE_CHANGELOG = 'update-changelog'
-    TEST_BUILD = 'test-build'
-    COMMIT_BUILD = 'commit-build'
-    UPLOAD = 'upload'
-    CLONE = 'clone'
-    RESTORE = 'restore'
-    CONFIG = 'config'
+class _ActionConf(object):
+    """ Action execution configuration. """
 
-
-class ActionConf(object):
-    def __init__(self, is_repository_based=True, restore=False,
+    def __init__(self, is_repository_based=True, clean=False, restore=False,
                  critical_branches=None):
         if critical_branches is None:
             critical_branches = []
         self.is_repository_based = is_repository_based
+        self.clean = clean
         self.restore_backup = restore
         self.critical_branches = critical_branches
 
 
 _ACTION_CONF = {
-    Action.TEST_PKG: ActionConf(True, True, None),
-    Action.COMMIT_RELEASE: ActionConf(True, False, [Setting.RELEASE_BRANCH,
-                                                    Setting.UPSTREAM_BRANCH,
-                                                    Setting.DEBIAN_BRANCH]),
-    Action.UPDATE_CHANGELOG: ActionConf(True, False, [Setting.DEBIAN_BRANCH]),
-    Action.TEST_BUILD: ActionConf(True, False, None),
-    Action.COMMIT_BUILD: ActionConf(True, False, [Setting.DEBIAN_BRANCH]),
-    Action.UPLOAD: ActionConf(True, False, None),
-    Action.CLONE: ActionConf(False, False, None),
-    Action.RESTORE: ActionConf(False, False, None),
-    Action.CONFIG: ActionConf(False, False, None),
+    Action.TEST_PKG: _ActionConf(True, True, True, None),
+    Action.COMMIT_RELEASE: _ActionConf(True, True, False,
+                                       [Setting.RELEASE_BRANCH,
+                                       Setting.UPSTREAM_BRANCH,
+                                       Setting.DEBIAN_BRANCH]),
+    Action.UPDATE_CHANGELOG: _ActionConf(True, True, False,
+                                         [Setting.DEBIAN_BRANCH]),
+    Action.TEST_BUILD: _ActionConf(True, True, False, None),
+    Action.COMMIT_BUILD: _ActionConf(True, True, False, [Setting.DEBIAN_BRANCH]),
+    Action.UPLOAD: _ActionConf(True, False, False, None),
+    Action.CLONE: _ActionConf(False, False, False, None),
+    Action.RESTORE: _ActionConf(False, False, False, None),
+    Action.CONFIG: _ActionConf(False, False, False, None),
 
 }
+
+
+########################## Library Function #############################
+#########################################################################
+
+def execute_with(**opts):
+    """
+    Execute action with options.
+    Optional arguments:
+        :param version:
+        :type version: bool
+        :param verbose:
+        :type verbose: bool
+        :param quiet:
+        :type quiet: bool
+        :param color:
+        :type color: bool
+        :param no_restore:
+        :type no_restore: bool
+        :param config: the path to the configuration file
+        :type config: str
+        :param dir: the working directory
+        :type dir: str
+        :param action:
+        :type action: Action
+    """
+    flags = {
+        Flag.SAFEMODE: opts.get('safemode', False),
+        Flag.VERBOSE: opts.get('verbose', False),
+        Flag.QUIET: opts.get('quiet', False),
+        Flag.COLOR: opts.get('color', False),
+        Flag.VERSION: opts.get('version', False),
+        Flag.NO_RESTORE: opts.get('norestore', False)}
+
+    options = {Option.CONFIG: opts.get('config', DEFAULT_CONFIG_PATH),
+               Option.DIR: opts.get('dir', ".")}
+
+    action = opts.get('action')
+
+    _execute(flags, options, action)
+
+
+########################## Argument Parsing #############################
+#########################################################################
+
+def _parse_args_and_execute():
+    """ Parses arguments and executes requested operations. """
+
+    parser = ArgumentParser(
+        description='Maintain debian packages with git and gbp.')
+
+    # Optional arguments.
+    parser.add_argument('-V', '--version', action='store_true',
+                        help='shows the current version number')
+    group_vq = parser.add_mutually_exclusive_group()
+    group_vq.add_argument('-v', '--verbose', action='store_true',
+                          help='enable verbose mode')
+    group_vq.add_argument("-q", "--quiet", action="store_true",
+                          help='enable quiet mode')
+    parser.add_argument('-c', '--color', action='store_true',
+                        help='enable colored output')
+    parser.add_argument('-s', '--safemode', action='store_true',
+                        help='prevent any file changes')
+    parser.add_argument('-n', '--norestore', action='store_true',
+                        help='prevent auto restore on command failure')
+    parser.add_argument('--config', default=DEFAULT_CONFIG_PATH,
+                        help='path to the configuration file')
+
+    # The possible sub commands.
+    parser.add_argument('action', nargs='?',
+                        choices=[Action.TEST_PKG.value,
+                                 Action.COMMIT_RELEASE.value,
+                                 Action.UPDATE_CHANGELOG.value,
+                                 Action.TEST_BUILD.value,
+                                 Action.COMMIT_BUILD.value,
+                                 Action.UPLOAD.value,
+                                 Action.RESTORE.value,
+                                 Action.CLONE.value,
+                                 Action.CONFIG.value],
+                        help="the main action (see gbpx(1)) for details")
+
+    # General args.
+    parser.add_argument('dir', nargs='?', default=getcwd(),
+                        help="path to git repository")
+
+    args = parser.parse_args()
+
+    flags = {Flag.SAFEMODE: args.safemode, Flag.VERBOSE: args.verbose,
+             Flag.QUIET: args.quiet, Flag.COLOR: args.color,
+             Flag.VERSION: args.version, Flag.NO_RESTORE: args.norestore}
+
+    options = {Option.CONFIG: args.config, Option.DIR: args.dir}
+
+    action = Action(args.action) if args.action is not None else None
+
+    # Execute main program.
+    _execute(flags, options, action)
+
+
+######################### Command Execution #############################
+#########################################################################
+
+def _execute(flags, options, action):
+    """
+    Executes the main program phases.
+        :param flags: run flags
+        :type flags: dict
+        :param options: options
+        :type options: dict
+        :param action: action
+        :type action: Action
+    """
+    # Execute requested options.
+    # Show version.
+    if flags[Flag.VERSION]:
+        log(flags, __version__, TextType.INFO)
+        # Always exit after showing version.
+        quit()
+
+    # Check safemode.
+    if flags[Flag.SAFEMODE]:
+        log(flags, "Safemode enabled, not changing any files", TextType.INFO)
+
+    # Switch to target directory.
+    chdir(options[Option.DIR])
+
+    # Check that an action is selected.
+    if action is None:
+        log(flags, "No action selected, see \"gbpx --help\"",
+            TextType.INFO)
+        quit()
+
+    # Create repository backup.
+    bak_dir = path.join(_TMP_DIR, path.basename(getcwd()), _TMP_BAK_SUBDIR)
+    bak_name = None
+    if _ACTION_CONF[action].is_repository_based:
+        try:
+            log(flags, "Saving backup of repository", TextType.INFO)
+            bak_name = add_backup(flags, bak_dir, name=action.value)
+        except OpError as err:
+            log_err(flags, err)
+            quit()
+
+    try:
+        # Execute initiation phase.
+        init_data = _exec_init(flags, action, options[Option.CONFIG])
+
+        # Execute action if allowed.
+        if init_data[0]:
+            _exec_action(flags, action, init_data[1], options[Option.CONFIG],
+                         bak_dir)
+
+        # Restore if required by action.
+        if _ACTION_CONF[action].restore_backup:
+            try:
+                restore_backup(flags, bak_dir, name=bak_name)
+            except OpError:
+                log(flags, "Restore failed, try \'gbpx {}\'".format(
+                    Action.RESTORE) + " to restore repository to " +
+                    "previous state", TextType.INFO)
+
+        # Reset if action is repository based (temp commit was made).
+        elif _ACTION_CONF[action].is_repository_based:
+            try:
+                log(flags, "Restoring initial branch state", TextType.INFO)
+                restore_temp_commit(flags, init_data[2])
+            except Error:
+                log(flags, "Could not switch back to initial branch state",
+                    TextType.ERR)
+    except OpError:
+        # Force a backup restore if command has failed.
+        log(flags, "\nError recovery for action \'" + action.value +
+            "\':", TextType.INIT)
+        if _ACTION_CONF[action].is_repository_based:
+            if flags[Flag.NO_RESTORE]:
+                log(flags, "Restore has been disabled (-n), " +
+                    "try \'gbpx {}\' to restore ".format(Action.RESTORE) +
+                    "repository to previous state", TextType.INFO)
+            else:
+                try:
+                    restore_backup(flags, bak_dir, name=bak_name)
+                except OpError:
+                    log(flags, "Restore failed, try \'gbpx {}\'".format(
+                        Action.RESTORE) + " to restore repository to " +
+                        "previous state", TextType.INFO)
+        else:
+            log(flags, "No restore action needed", TextType.INFO)
+
+
+def _exec_init(flags, action, config_path):
+    """
+    Executes the initiation phase.
+    Returns a tuple of:
+        - if the given action can be executed
+        - the loaded configuration
+        - restore data for the initial branch state
+        - repository backup name
+    """
+
+    # Initialize return values.
+    run_action = True
+    conf = None
+    restore_data = None
+
+    # Prepare if a sub command is used.
+    if _ACTION_CONF[action].is_repository_based:
+
+        # Save current branch name and any uncommitted changes.
+        try:
+            log(flags, "Saving initial state to restore after execution",
+                TextType.INFO)
+            restore_data = create_temp_commit(flags)
+            changes_committed = restore_data[2] is not None
+        except Error as err:
+            log_err(flags, err)
+            raise OpError()
+
+        # Pre load config, initialize to 'None' for no-config action.
+        log(flags, "Reading config file", TextType.INFO)
+        try:
+            # Switch branch to master before trying to read config.
+            switch_branch(_MASTER_BRANCH)
+
+            if _ACTION_CONF[action].clean:
+                # Try to clean master branch from ignored files.
+                try:
+                    log(flags, "Cleaning ignored files from working directory.")
+                    clean_ignored_files(flags)
+                except Error:
+                    # No .gitignore may be available on the current branch.
+                    pass
+
+            conf = get_config(config_path)
+        except Error as err:
+            log_err(flags, err)
+            raise OpError()
+
+        # Check for command conflicts with uncommitted changes.
+        if changes_committed:
+            if get_branch() in [conf[b] for b in
+                                _ACTION_CONF[action].critical_branches]:
+                log(flags, "Please commit all changes on branch \'" +
+                    get_branch() + "\' before running " +
+                    "action \'" + action.value + "\'", TextType.ERR)
+                run_action = False
+
+    return run_action, conf, restore_data
+
+
+def _exec_action(flags, action, conf, config_path, bak_dir):
+    """
+    Executes the given action.
+    Returns True if successful, False otherwise.
+    """
+
+    log(flags, "\nExecuting command: " + action.value, TextType.INIT)
+    # Build release without committing.
+    if action == Action.TEST_PKG:
+        _test_pkg(conf, flags)
+
+    # Prepare release.
+    elif action == Action.COMMIT_RELEASE:
+        _commit_release(conf, flags, True)
+
+    # Update the changelog with set options and commit the changes.
+    elif action == Action.UPDATE_CHANGELOG:
+        _update_changelog(conf, flags, editor=True, commit=True, release=True)
+
+    # Build test package.
+    elif action == Action.TEST_BUILD:
+        _build(conf, flags, conf[Setting.TEST_BUILD_FLAGS],
+               build_name=_TEST_BUILD_NAME)
+
+    # Build a signed package and tag commit.
+    elif action == Action.COMMIT_BUILD:
+        _build(conf, flags, conf[Setting.BUILD_FLAGS], build_name=_BUILD_NAME,
+               tag=True, sign_tag=True, sign_changes=True, sign_source=True)
+
+    # Upload latest build.
+    elif action == Action.UPLOAD:
+        _upload_pkg(conf, flags)
+
+    # Restore repository to an earlier state.
+    elif action == Action.RESTORE:
+        _restore_repository(flags, bak_dir)
+
+    # Clone a remote repository and setup the necessary branches.
+    elif action == Action.CLONE:
+        _clone_source_repository(flags, DEFAULT_CONFIG_PATH)
+
+    # Create example config.
+    elif action == Action.CONFIG:
+        _create_config(flags, config_path)
 
 
 ####################### Sub Command functions ###########################
 #########################################################################
 
-def test_pkg(conf, flags):
+def _test_pkg(conf, flags):
     """
     Prepares a release and builds the package
     but reverts all changes after, leaving the repository unchanged.
@@ -101,15 +388,15 @@ def test_pkg(conf, flags):
         release_ver = create_ver[0]
 
         # Prepare release, no tags.
-        commit_release(conf, flags, False)
+        _commit_release(conf, flags, False)
 
         # Update the changelog to match upstream version.
         debian_ver = release_ver + conf[Setting.DEBIAN_VERSION_SUFFIX]
-        update_changelog(conf, flags, version=debian_ver, commit=True)
+        _update_changelog(conf, flags, version=debian_ver, commit=True)
 
         # Test package build.
-        build(conf, flags, conf[Setting.TEST_BUILD_FLAGS],
-              build_name=_TEST_BUILD_NAME)
+        _build(conf, flags, conf[Setting.TEST_BUILD_FLAGS],
+               build_name=_TEST_BUILD_NAME)
 
         # Revert changes.
         log(flags, "Reverting changes")
@@ -118,7 +405,7 @@ def test_pkg(conf, flags):
         raise OpError()
 
 
-def commit_release(conf, flags, sign):
+def _commit_release(conf, flags, sign):
     """
     Prepares release, committing the latest to
     upstream and merging with debian. Also tags the upstrem commit.
@@ -175,7 +462,7 @@ def commit_release(conf, flags, sign):
         if path.exists(_GIT_IGNORE_PATH):
             exclude_opts.append("--exclude-from={}".format(_GIT_IGNORE_PATH))
 
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["git", "archive", conf[Setting.RELEASE_BRANCH], "-o",
                       archive_path])
             exec_cmd(["tar", "-xf", archive_path, "--directory=" +
@@ -183,7 +470,7 @@ def commit_release(conf, flags, sign):
 
         # Create the upstream tarball.
         log(flags, "Making upstream tarball from extracted source files")
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["tar", "--directory=" + tmp_dir, "-czf", tar_path,
                       source_dir, "--exclude-vcs"])
 
@@ -205,7 +492,7 @@ def commit_release(conf, flags, sign):
         log(flags,
             "Merging upstream branch \'" + conf[Setting.UPSTREAM_BRANCH] +
             "\' into debian branch \'" + conf[Setting.DEBIAN_BRANCH] + "\'")
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["gbp", "import-orig", "--no-interactive", "--merge"] +
                      tag_opt + [
                          "--debian-branch=" + conf[Setting.DEBIAN_BRANCH],
@@ -227,7 +514,7 @@ def commit_release(conf, flags, sign):
     return conf[Setting.UPSTREAM_TAG_TYPE] + "/" + release_ver
 
 
-def update_changelog(conf, flags, **opts):
+def _update_changelog(conf, flags, **opts):
     """
     Update the changelog with the git commit messages since last build.
     - version   -- Set to <new version> to be created.
@@ -264,7 +551,7 @@ def update_changelog(conf, flags, **opts):
 
     try:
         switch_branch(conf[Setting.DEBIAN_BRANCH])
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             # Update changelog.
             exec_cmd(["gbp", "dch", "--debian-branch=" +
                       conf[Setting.DEBIAN_BRANCH],
@@ -291,7 +578,7 @@ def update_changelog(conf, flags, **opts):
     log_success(flags)
 
 
-def build(conf, flags, build_flags, **opts):
+def _build(conf, flags, build_flags, **opts):
     """
     Builds package from the latest debian commit.
     - build_flags       -- build flags to use with the build command
@@ -377,7 +664,7 @@ def build(conf, flags, build_flags, **opts):
                          ([build_flags] if build_flags is not None else []))
 
     try:
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["gbp", "buildpackage"] + tag_opt + upstream_opt +
                      ["--git-debian-branch=" + conf[Setting.DEBIAN_BRANCH],
                       "--git-upstream-branch=" + conf[Setting.UPSTREAM_BRANCH],
@@ -414,7 +701,7 @@ def build(conf, flags, build_flags, **opts):
     log_success(flags)
 
 
-def upload_pkg(conf, flags):
+def _upload_pkg(conf, flags):
     """
     Uploads the latest build to the ppa set in the config file.
     """
@@ -445,7 +732,7 @@ def upload_pkg(conf, flags):
                     path.basename(changes_paths[0]).split('_')[1])):
             raise OpError()
         try:
-            if not flags['safemode']:
+            if not flags[Flag.SAFEMODE]:
                 exec_cmd(
                     ["dput", "ppa:{}".format(conf[Setting.PPA_NAME]),
                      changes_paths[0]])
@@ -463,7 +750,7 @@ def upload_pkg(conf, flags):
     log_success(flags)
 
 
-def restore_repository(flags, bak_dir):
+def _restore_repository(flags, bak_dir):
     """
     Restore the repository to an earlier backed up state.
     - bak_dir   -- The backup storage directory.
@@ -480,7 +767,7 @@ def restore_repository(flags, bak_dir):
     log_success(flags)
 
 
-def clone_source_repository(flags):
+def _clone_source_repository(flags, config_path):
     """ Clones a remote repository and creates the proper branches. """
     log(flags, "\nCloning remote source repository", TextType.INFO)
 
@@ -510,7 +797,7 @@ def clone_source_repository(flags):
         log(flags,
             "Cloning from url \'{0}\' and checking out source branch \'{1}\'".
             format(url, remote_src_branch))
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["git", "clone", "-b", remote_src_branch, url])
 
         # Move into the cloned repository.
@@ -522,7 +809,7 @@ def clone_source_repository(flags):
                 log(flags, "Creating " + branches[i][0] + " branch \'" +
                     branch_name + "\' from source branch \'" +
                     remote_src_branch + "\'")
-                if not flags['safemode']:
+                if not flags[Flag.SAFEMODE]:
                     exec_cmd(["git", "branch", branch_name])
                 switch_branch(remote_src_branch)
             else:
@@ -532,7 +819,7 @@ def clone_source_repository(flags):
         # Clean upstream branch.
         log(flags, "Cleaning upstream branch \'" + branch_names[1] + "\'")
         switch_branch(branch_names[1])
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["git", "rm", "-rf", "--ignore-unmatch", "*"])
         log(flags, "Creating initial upstream commit on branch \'" +
             branch_names[1] + "\'")
@@ -550,7 +837,7 @@ def clone_source_repository(flags):
             email = prompt_user_input("Enter the developer " +
                                       "e-mail address", True)
             email_cmd = ["-e", email] if email else []
-            if not flags['safemode']:
+            if not flags[Flag.SAFEMODE]:
                 exec_piped_cmds(["echo", "y"], ["dh_make", "-p", rep_name +
                                                 "_" + version, "-i",
                                                 "--createorig"] + email_cmd)
@@ -569,7 +856,7 @@ def clone_source_repository(flags):
 
         # Setup config.
         switch_branch(branch_names[0])
-        create_config(flags, preset_keys)
+        _create_config(flags, config_path, preset_keys=preset_keys)
         log(flags, "Creating initial release commit on branch \'" +
             branch_names[0] + "\'")
         commit_changes(flags, "Initial release commit.")
@@ -581,7 +868,7 @@ def clone_source_repository(flags):
     log_success(flags)
 
 
-def create_config(flags, config_path, preset_keys=None):
+def _create_config(flags, config_path, preset_keys=None):
     """ Creates example config. """
     log(flags, "\nCreating example config file", TextType.INFO)
 
@@ -596,246 +883,7 @@ def create_config(flags, config_path, preset_keys=None):
     log_success(flags)
 
 
-######################### Command Execution #############################
-#########################################################################
-
-def execute(flags, args):
-    """ Executes the main program phases. """
-    # Execute requested options.
-    exec_options(args, flags)
-
-    # Switch to target directory.
-    chdir(args.dir)
-
-    # Check that an action is selected.
-    action = args.action
-    if action is None:
-        log(flags, "No action selected, see \"gbpx --help\"",
-            TextType.INFO)
-        quit()
-
-    # Create repository backup.
-    bak_dir = path.join(_TMP_DIR, path.basename(getcwd()), _TMP_BAK_SUBDIR)
-    bak_name = None
-    if _ACTION_CONF[action].is_repository_based:
-        try:
-            log(flags, "Saving backup of repository", TextType.INFO)
-            bak_name = add_backup(flags, bak_dir, action)
-        except OpError as err:
-            log_err(flags, err)
-            quit()
-
-    try:
-        # Execute initiation phase.
-        init_data = exec_init(flags, action, args.config)
-
-        # Execute action if allowed.
-        if init_data[0]:
-            exec_action(flags, action, init_data[1], args.config, bak_dir)
-
-        # Restore if required by action.
-        if _ACTION_CONF[action].restore_backup:
-            try:
-                restore_backup(flags, bak_dir, name=bak_name)
-            except OpError:
-                log(flags, "Restore failed, try \'gbpx {}\'".format(
-                    Action.RESTORE) + " to restore repository to " +
-                    "previous state", TextType.INFO)
-
-        # Reset if action is repository based (temp commit was made).
-        elif _ACTION_CONF[action].is_repository_based:
-            try:
-                log(flags, "Restoring initial branch state", TextType.INFO)
-                restore_temp_commit(flags, init_data[2])
-            except Error:
-                log(flags, "Could not switch back to initial branch state",
-                    TextType.ERR)
-    except OpError:
-        # Force a backup restore if command has failed.
-        log(flags, "\nError recovery for action \'" + action +
-            "\':", TextType.INIT)
-        if args.norestore:
-            log(flags, "Restore has been disabled (-n), " +
-                "try \'gbpx {}\' to restore ".format(Action.RESTORE) +
-                "repository to previous state", TextType.INFO)
-        elif _ACTION_CONF[action].is_repository_based:
-            try:
-                restore_backup(flags, bak_dir, name=bak_name)
-            except OpError:
-                log(flags, "Restore failed, try \'gbpx {}\'".format(
-                    Action.RESTORE) + " to restore repository to " +
-                    "previous state", TextType.INFO)
-
-
-def exec_options(args, flags):
-    """
-    Executes any operations for options specified in args.
-    Logs special options set in flags
-    """
-    # Show version.
-    if args.version:
-        log(flags, __version__, TextType.INFO)
-        # Always exit after showing version.
-        quit()
-
-    # Check safemode.
-    if flags['safemode']:
-        log(flags, "Safemode enabled, not changing any files", TextType.INFO)
-
-
-def exec_init(flags, action, config_path):
-    """
-    Executes the initiation phase.
-    Returns a tuple of:
-        - if the given action can be executed
-        - the loaded configuration
-        - restore data for the initial branch state
-        - repository backup name
-    """
-
-    # Initialize return values.
-    run_action = True
-    conf = None
-    restore_data = None
-
-    # Prepare if a sub command is used.
-    if _ACTION_CONF[action].is_repository_based:
-
-        # Save current branch name and any uncommitted changes.
-        try:
-            log(flags, "Saving initial state to restore after execution",
-                TextType.INFO)
-            restore_data = create_temp_commit(flags)
-            changes_committed = restore_data[2] is not None
-        except Error as err:
-            log_err(flags, err)
-            raise OpError()
-
-        # Pre load config, initialize to 'None' for no-config action.
-        log(flags, "Reading config file", TextType.INFO)
-        try:
-            # Switch branch to master before trying to read config.
-            switch_branch(_MASTER_BRANCH)
-
-            # Try to clean master branch from ignored files.
-            try:
-                log(flags, "Cleaning ignored files from working directory.")
-                clean_ignored_files(flags)
-            except Error:
-                # No .gitignore may be available on the current branch.
-                pass
-
-            conf = get_config(config_path)
-        except Error as err:
-            log_err(flags, err)
-            raise OpError()
-
-        # Check for command conflicts with uncommitted changes.
-        if changes_committed:
-            if get_branch() in [conf[b] for b in
-                                _ACTION_CONF[action].critical_branches]:
-                log(flags, "Please commit all changes on branch \'" +
-                    get_branch() + "\' before running " +
-                    "action \'" + action + "\'", TextType.ERR)
-                run_action = False
-
-    return run_action, conf, restore_data
-
-
-def exec_action(flags, action, conf, config_path, bak_dir):
-    """
-    Executes the given action.
-    Returns True if successful, False otherwise.
-    """
-
-    log(flags, "\nExecuting command: " + action, TextType.INIT)
-    # Build release without committing.
-    if action == Action.TEST_PKG:
-        test_pkg(conf, flags)
-
-    # Prepare release.
-    elif action == Action.COMMIT_RELEASE:
-        commit_release(conf, flags, True)
-
-    # Update the changelog with set options and commit the changes.
-    elif action == Action.UPDATE_CHANGELOG:
-        update_changelog(conf, flags, editor=True, commit=True, release=True)
-
-    # Build test package.
-    elif action == Action.TEST_BUILD:
-        build(conf, flags, conf[Setting.TEST_BUILD_FLAGS],
-              build_name=_TEST_BUILD_NAME)
-
-    # Build a signed package and tag commit.
-    elif action == Action.COMMIT_BUILD:
-        build(conf, flags, conf[Setting.BUILD_FLAGS], build_name=_BUILD_NAME,
-              tag=True, sign_tag=True, sign_changes=True, sign_source=True)
-
-    # Upload latest build.
-    elif action == Action.UPLOAD:
-        upload_pkg(conf, flags)
-
-    # Restore repository to an earlier state.
-    elif action == Action.RESTORE:
-        restore_repository(flags, bak_dir)
-
-    # Clone a remote repository and setup the necessary branches.
-    elif action == Action.CLONE:
-        clone_source_repository(flags)
-
-    # Create example config.
-    elif action == Action.CONFIG:
-        create_config(flags, config_path)
-
-
-########################## Argument Parsing #############################
-#########################################################################
-
-def parse_args_and_execute():
-    """ Parses arguments and executes requested operations. """
-
-    parser = ArgumentParser(
-        description='Maintain debian packages with git and gbp.')
-
-    # Optional arguments.
-    parser.add_argument('-V', '--version', action='store_true',
-                        help='shows the current version number')
-    group_vq = parser.add_mutually_exclusive_group()
-    group_vq.add_argument('-v', '--verbose', action='store_true',
-                          help='enable verbose mode')
-    group_vq.add_argument("-q", "--quiet", action="store_true",
-                          help='enable quiet mode')
-    parser.add_argument('-c', '--color', action='store_true',
-                        help='enable colored output')
-    parser.add_argument('-s', '--safemode', action='store_true',
-                        help='prevent any file changes')
-    parser.add_argument('-n', '--norestore', action='store_true',
-                        help='prevent auto restore on command failure')
-    parser.add_argument('--config', default=DEFAULT_CONFIG_PATH,
-                        help='path to the configuration file')
-
-    # The possible sub commands.
-    parser.add_argument('action', nargs='?',
-                        choices=[Action.TEST_PKG, Action.COMMIT_RELEASE,
-                                 Action.UPDATE_CHANGELOG,
-                                 Action.TEST_BUILD, Action.COMMIT_BUILD,
-                                 Action.UPLOAD,
-                                 Action.RESTORE, Action.CLONE, Action.CONFIG],
-                        help="the main action (see gbpx(1)) for details")
-
-    # General args.
-    parser.add_argument('dir', nargs='?', default=getcwd(),
-                        help="path to git repository")
-
-    args = parser.parse_args()
-
-    flags = {'safemode': args.safemode, 'verbose': args.verbose,
-             'quiet': args.quiet, 'color': args.color}
-
-    # Execute main program.
-    execute(flags, args)
-
-
 ############################ Start script ###############################
 #########################################################################
-parse_args_and_execute()
+if __name__ == '__main__':
+    _parse_args_and_execute()

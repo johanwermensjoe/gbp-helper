@@ -4,9 +4,11 @@ Contains various io functions for git and packaging.
 """
 from configparser import ConfigParser
 from datetime import datetime
+from enum import Enum
 from os import path, getcwd
 from time import strftime
 
+from gbpxargs import Flag
 from gitutil import get_head_tags, get_head_tag_version, tag_head, \
     get_branch, get_head_commit, is_working_dir_clean, stash_changes, \
     apply_stash, commit_changes, switch_branch, reset_branch, check_git_rep, \
@@ -76,7 +78,7 @@ DEFAULT_CONFIG_PATH = "gbpx.conf"
 _DEL_EXCLUDE = ","
 
 
-class Setting(object):
+class Setting(Enum):
     """ Setting identifier class.
     """
     RELEASE_BRANCH = 'releaseBranch'
@@ -100,20 +102,30 @@ class Setting(object):
     PPA_NAME = 'ppa'
 
 
-class _BaseSetting(object):
-    def __init__(self, default, section, required, convert):
-        self.default = default
-        self.section = section
-        self.required = required
-        self.convert = convert
-
-
-class _Section(object):
+class _Section(Enum):
     GIT = "GIT"
     SIGNING = "SIGNING"
     BUILD = "BUILD"
     PACKAGE = "PACKAGE"
     UPLOAD = "UPLOAD"
+
+
+class _BaseSetting(object):
+    def __init__(self, default, section, required, convert):
+        """
+        Setting configuration.
+            :param default: the default value
+            :param section: the section
+            :type section: _Section
+            :param required: if the setting is required to exist
+            :type required: bool
+            :param convert: the conversion function from a string
+            :type convert: callable
+        """
+        self.default = default
+        self.section = section
+        self.required = required
+        self.convert = convert
 
 
 # Settings with default value, section and visibility.
@@ -159,19 +171,19 @@ def create_ex_config(flags, config_path, preset_keys=None):
             config = ConfigParser()
 
             for key, setting in _CONFIG.items():
-                if not config.has_section(setting.section):
-                    config[setting.section] = {}
+                if not config.has_section(setting.section.value):
+                    config[setting.section.value] = {}
 
                 # Try to find value in preset keys first.
                 if preset_keys is not None and key in preset_keys:
                     val = preset_keys[key]
                 else:
                     val = setting.default
-                config[setting.section][key] = str(
+                config[setting.section.value][key.value] = str(
                     val) if val is not None else ""
 
             # Writing configuration file to "configPath".
-            if not flags['safemode']:
+            if not flags[Flag.SAFEMODE]:
                 with open(config_path, 'w') as config_file:
                     config.write(config_file)
 
@@ -198,7 +210,7 @@ def get_config(config_path):
     for key, setting in _CONFIG.items():
         # Set conf value even if it's empty.
         try:
-            val = setting.convert(config[setting.section][key])
+            val = setting.convert(config[setting.section.value][key.value])
         except KeyError:
             val = None
         # Check if required but non existent.
@@ -207,8 +219,8 @@ def get_config(config_path):
             val = setting.default
             # Check if required in config.
             if setting.required:
-                raise ConfigError("The value in for " + key +
-                                  " in section [" + setting.section +
+                raise ConfigError("The value in for " + key.value +
+                                  " in section [" + setting.section.value +
                                   "] is missing but required",
                                   config_path)
         conf[key] = val
@@ -277,7 +289,7 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
 
             # Tag using the given version.
             tag = tag_type + "/" + version
-            if not flags['safemode']:
+            if not flags[Flag.SAFEMODE]:
                 log(flags, "Tagging HEAD commit on branch \'" + branch +
                     "\' as \'" + tag + "\'")
                 tag_head(flags, branch, tag)
@@ -374,7 +386,7 @@ def add_backup(flags, bak_dir, name="unknown"):
 
         # Make a safety backup of the current git repository.
         log(flags, "Creating backup file \'" + tar_path + "\'")
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             mkdirs(flags, bak_dir)
             exec_cmd(["tar", "-czf", tar_path, "."])
 
@@ -446,7 +458,7 @@ def restore_backup(flags, bak_dir, num=None, name=None):
         try:
             log(flags, "Restoring backup \'" + bak_name + "\'")
             clean_dir(flags, getcwd())
-            if not flags['safemode']:
+            if not flags[Flag.SAFEMODE]:
                 exec_cmd(["tar", "-xf", path.join(bak_dir, bak_name)])
         except Error as err:
             log(flags, "Restore failed, the backup can be found in \'" +

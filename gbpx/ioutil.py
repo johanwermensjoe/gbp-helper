@@ -6,10 +6,12 @@ from os import path, rename, remove, listdir, makedirs, walk
 from shutil import rmtree
 from subprocess import check_call, Popen, PIPE
 from sys import stdout
+from gbpxargs import Flag
 
 
 ############################### Errors ##################################
 #########################################################################
+
 
 class Error(Exception):
     """Base class for exceptions in this module."""
@@ -99,9 +101,9 @@ def log(flags, msg, type_=TextType.STD):
     Default priority is 0 which only prints if verbose, 1 always prints.
     """
     # Always print error messages and similar.
-    if (type_[1] >= 2) or flags['verbose'] \
-            or (not flags['quiet'] and type_[1] == 1):
-        if flags['color']:
+    if (type_[1] >= 2) or flags[Flag.VERBOSE] \
+            or (not flags[Flag.QUIET] and type_[1] == 1):
+        if flags[Flag.COLOR]:
             _print_format(msg, type_[0])
         else:
             print(msg)
@@ -237,7 +239,7 @@ def mkdirs(flags, dir_path):
     """
     # Create directories if necessary.
     if not path.isdir(dir_path):
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             makedirs(dir_path)
 
 
@@ -260,7 +262,7 @@ def remove_dir(flags, dir_path):
     - dir_path  -- The path of the directory to remove.
     """
     if path.isdir(dir_path):
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             # Remove directory recursively.
             rmtree(dir_path)
 
@@ -271,7 +273,7 @@ def remove_file(flags, file_path):
     - file_path -- The path of the file to remove.
     """
     if path.isfile(file_path):
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             # Remove the file.
             remove(file_path)
 
@@ -285,19 +287,38 @@ def move_file_dir(flags, old_path, new_path):
 
         # Check if the file/dir is being moved or just renamed.
         if old_dir != new_dir:
-            if not flags['safemode']:
+            if not flags[Flag.SAFEMODE]:
                 # Make sure parent directory exists.
                 if not path.isdir(new_dir):
                     makedirs(new_dir)
         else:
             # Rename
-            if not flags['safemode']:
+            if not flags[Flag.SAFEMODE]:
                 # If only case differs, do temp move (Samba compatibility).
                 if old_path.lower() == new_path.lower():
                     rename(old_path, old_path + "_temp")
                     old_path += "_temp"
                 # Do the move/rename.
                 rename(old_path, new_path)
+
+
+def create_file(flags, file_path, content):
+    """
+    Create a new file, skipp if file exists.
+        :param flags: run flags
+        :type flags: dict
+        :param file_path: file to create
+        :type file_path: str
+        :param content: content to write to new file
+        :type content: str
+        :raises: IOError
+    """
+    if not path.exists(file_path):
+        dir_path = path.dirname(file_path)
+        if dir_path != "":
+            mkdirs(flags, dir_path)
+        with open(file_path, "w+") as file_:
+            file_.write(content)
 
 
 def prompt_user_input(prompt, allow_empty=False, default=None):

@@ -7,6 +7,7 @@ If a failure occurs functions will terminate with GitError.
 from os import getcwd
 from re import findall, match
 
+from gbpxargs import Flag
 from ioutil import Error, log, TextType, exec_cmd, CommandError
 
 
@@ -225,6 +226,38 @@ def get_head_commit(branch):
 
 ## Affecting repository / files.
 
+def init_repository(flags, dir_path):
+    """
+    Initiate a git repository.
+        :param flags: run flags
+        :type flags: dict
+        :param dir_path: path of the repository to initiate
+        :type dir_path: str
+        :raises: GitError
+    """
+    try:
+        if not flags[Flag.SAFEMODE]:
+            exec_cmd(["git", "init", dir_path])
+    except CommandError:
+        raise GitError("Could not initiate repository \'{}\' ".format(dir_path))
+
+
+def create_branch(flags, branch):
+    """
+    Create a branch from the current.
+        :param flags: run flags
+        :type flags: dict
+        :param branch: the branch to create
+        :type branch: str
+        :raises: GitError
+    """
+    try:
+        if not flags[Flag.SAFEMODE]:
+            exec_cmd(["git", "branch", branch])
+    except CommandError:
+        raise GitError("Could not create branch \'{}\' ".format(branch))
+
+
 def reset_branch(flags, branch, commit):
     """
     Resets the given branch to the given commit, (accepts HEAD as commit).
@@ -232,7 +265,7 @@ def reset_branch(flags, branch, commit):
     """
     switch_branch(branch)
     try:
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["git", "reset", "--hard", commit])
     except CommandError:
         raise GitError("Could not reset branch \'" + branch + "\' " +
@@ -246,7 +279,7 @@ def commit_changes(flags, msg):
     """
     check_git_rep()
     try:
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["git", "add", "-A"])
             exec_cmd(["git", "commit", "-m", msg])
     except CommandError:
@@ -259,7 +292,7 @@ def stash_changes(flags, name=None):
     """
     check_git_rep()
     try:
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             if name is not None:
                 exec_cmd(["git", "stash", "save", "--include-untracked", name])
             else:
@@ -274,7 +307,7 @@ def apply_stash(flags, branch, name=None, drop=True):
     """
     switch_branch(branch)
     try:
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             if name is not None:
                 exec_cmd(["git", "stash", "apply", "stash^{/\"" +
                           name + "\"}"])
@@ -298,7 +331,7 @@ def delete_tag(flags, tag):
     """
     check_git_rep()
     try:
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["git", "tag", "-d", tag])
     except CommandError:
         raise GitError("The tag \'" + tag + "\' could not be deleted", "tag")
@@ -311,7 +344,7 @@ def tag_head(flags, branch, tag):
     """
     switch_branch(branch)
     try:
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["git", "tag", tag])
     except CommandError:
         raise GitError("The tag \'" + tag + "\' could not be created " +
@@ -321,7 +354,7 @@ def tag_head(flags, branch, tag):
 def clean_ignored_files(flags):
     """ Cleans files matched by a .gitignore file. """
     try:
-        if not flags['safemode']:
+        if not flags[Flag.SAFEMODE]:
             exec_cmd(["git", "clean", "-Xf"])
     except CommandError:
         raise GitError("Could not clean ignored files", "clean")
