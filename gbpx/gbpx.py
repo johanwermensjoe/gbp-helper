@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# TODO Add all external dependencies (tar etc)
+# TODO Add command completion
 """
 gbpx module:
 Used as a helper script for gbp-buildpackage.
@@ -24,7 +26,7 @@ from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
 ############################## Constants ################################
 #########################################################################
 
-__version__ = "0.6"
+__version__ = "0.7"
 
 _GIT_IGNORE_PATH = ".gitignore"
 _CHANGELOG_PATH = "debian/changelog"
