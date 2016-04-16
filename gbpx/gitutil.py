@@ -355,7 +355,7 @@ def clean_ignored_files(flags):
     """ Cleans files matched by a .gitignore file. """
     try:
         if not flags[Flag.SAFEMODE]:
-            exec_cmd(["git", "clean", "-Xf"])
+            exec_cmd(["git", "clean", "-Xfd"])
     except CommandError:
         raise GitError("Could not clean ignored files", "clean")
 
