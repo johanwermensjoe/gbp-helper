@@ -1,4 +1,5 @@
 gbpx/gbpx.py usr/lib/gbpx
 gbpx/gbpxutil.py usr/lib/gbpx
+gbpx/gbpxargs.py usr/lib/gbpx
 gbpx/gitutil.py usr/lib/gbpx
 gbpx/ioutil.py usr/lib/gbpx
