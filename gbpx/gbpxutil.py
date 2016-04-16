@@ -150,7 +150,7 @@ _CONFIG = {
     Setting.DEBIAN_VERSION_SUFFIX: _BaseSetting("-0~ppa1", _Section.PACKAGE,
                                                 False, str),
     Setting.EXCLUDE_FILES: _BaseSetting(
-        DEFAULT_CONFIG_PATH + ",README.md,LICENCE", _Section.PACKAGE, False,
+        DEFAULT_CONFIG_PATH + ",README.md,LICENSE", _Section.PACKAGE, False,
         lambda s: [se.strip() for se in str(s).split(_DEL_EXCLUDE)]),
 
     Setting.PPA_NAME: _BaseSetting(None, _Section.UPLOAD, False, str),
