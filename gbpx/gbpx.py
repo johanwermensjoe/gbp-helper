@@ -24,7 +24,7 @@ from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
 ############################## Constants ################################
 #########################################################################
 
-__version__ = "0.5"
+__version__ = "0.6"
 
 _GIT_IGNORE_PATH = ".gitignore"
 _CHANGELOG_PATH = "debian/changelog"
