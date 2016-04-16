@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# TODO Add all external dependencies (tar etc)
 # TODO Add command completion
 """
 gbpx module:
