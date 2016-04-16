@@ -104,12 +104,12 @@ def execute_with(**opts):
         Flag.SAFEMODE: opts.get('safemode', False),
         Flag.VERBOSE: opts.get('verbose', False),
         Flag.QUIET: opts.get('quiet', False),
-        Flag.COLOR: opts.get('color', False),
-        Flag.VERSION: opts.get('version', False),
-        Flag.NO_RESTORE: opts.get('norestore', False)}
+        Flag.COLOR: opts.get('color', False)}
 
     options = {Option.CONFIG: opts.get('config', DEFAULT_CONFIG_PATH),
-               Option.DIR: opts.get('dir', ".")}
+               Option.DIR: opts.get('dir', "."),
+               Option.VERSION: opts.get('version', False),
+               Option.NO_RESTORE: opts.get('norestore', False)}
 
     action = opts.get('action')
 
@@ -162,10 +162,10 @@ def _parse_args_and_execute():
     args = parser.parse_args()
 
     flags = {Flag.SAFEMODE: args.safemode, Flag.VERBOSE: args.verbose,
-             Flag.QUIET: args.quiet, Flag.COLOR: args.color,
-             Flag.VERSION: args.version, Flag.NO_RESTORE: args.norestore}
+             Flag.QUIET: args.quiet, Flag.COLOR: args.color}
 
-    options = {Option.CONFIG: args.config, Option.DIR: args.dir}
+    options = {Option.CONFIG: args.config, Option.DIR: args.dir,
+               Option.VERSION: args.version, Option.NO_RESTORE: args.norestore}
 
     action = Action(args.action) if args.action is not None else None
 
@@ -188,7 +188,7 @@ def _execute(flags, options, action):
     """
     # Execute requested options.
     # Show version.
-    if flags[Flag.VERSION]:
+    if options[Option.VERSION]:
         log(flags, __version__, TextType.INFO)
         # Always exit after showing version.
         quit()
@@ -251,7 +251,7 @@ def _execute(flags, options, action):
         log(flags, "\nError recovery for action \'" + action.value +
             "\':", TextType.INIT)
         if _ACTION_CONF[action].is_repository_based:
-            if flags[Flag.NO_RESTORE]:
+            if options[Option.NO_RESTORE]:
                 log(flags, "Restore has been disabled (-n), " +
                     "try \'gbpx {}\' to restore ".format(Action.RESTORE) +
                     "repository to previous state", TextType.INFO)

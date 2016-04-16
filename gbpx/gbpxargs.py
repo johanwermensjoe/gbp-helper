@@ -7,18 +7,18 @@ from enum import Enum
 
 class Flag(Enum):
     """ Execution flag identifiers. """
-    VERSION = 'version'
     VERBOSE = 'verbose'
     QUIET = 'quiet'
     COLOR = 'color'
     SAFEMODE = 'safemode'
-    NO_RESTORE = 'norestore'
 
 
 class Option(Enum):
     """ Execution option identifiers. """
     CONFIG = 'config'
     DIR = 'dir'
+    VERSION = 'version'
+    NO_RESTORE = 'norestore'
 
 
 class Action(Enum):

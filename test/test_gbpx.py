@@ -20,7 +20,7 @@ _UPSTREAM = "upstream"
 _DEBIAN = "debian"
 
 _FLAGS = {Flag.SAFEMODE: False, Flag.QUIET: False, Flag.VERBOSE: False,
-          Flag.VERSION: False, Flag.COLOR: False, Flag.NO_RESTORE: False}
+          Flag.COLOR: False}
 
 
 def set_up():
