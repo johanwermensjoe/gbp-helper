@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # TODO Add command completion
+# TODO Add multi distribution builds
+# TODO Fix merge to debian issue
 """
 gbpx module:
 Used as a helper script for gbp-buildpackage.

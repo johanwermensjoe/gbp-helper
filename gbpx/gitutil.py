@@ -309,11 +309,10 @@ def apply_stash(flags, branch, name=None, drop=True):
     try:
         if not flags[Flag.SAFEMODE]:
             if name is not None:
-                exec_cmd(["git", "stash", "apply", "stash^{/\"" +
-                          name + "\"}"])
+                exec_cmd(["git", "stash", "apply", "stash^{/{}}".format(name)])
                 if drop:
-                    exec_cmd(["git", "stash", "drop", "stash^{/\"" +
-                              name + "\"}"])
+                    exec_cmd(["git", "stash", "drop",
+                              "stash^{/{}}".format(name)])
             else:
                 exec_cmd(["git", "stash", "apply"])
                 if drop:
