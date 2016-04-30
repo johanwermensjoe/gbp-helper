@@ -1,0 +1,19 @@
+_gbpx()
+{
+    local cur_word prev_word option_list action_list
+
+    cur_word="${COMP_WORDS[COMP_CWORD]}"
+    prev_word="${COMP_WORDS[COMP_CWORD-1]}"
+
+    option_list=`gbpx --show-options`
+    action_list=`gbpx --show-actions`
+
+    # Only perform completion if the current word starts with a dash ('-'). 
+    if [[ ${cur_word} == -* ]] ; then
+        COMPREPLY=( $(compgen -W "${option_list}" -- ${cur_word}) )
+    else
+        COMPREPLY=( $(compgen -W "${action_list}" -- ${cur_word}) )
+    fi
+    return 0 
+}
+complete -F _gbpx gbpx
