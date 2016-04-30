@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-# TODO Add command completion
 # TODO Add multi distribution builds
 # TODO Fix merge to debian issue
 """
 gbpx module:
 Used as a helper script for gbp-buildpackage.
 """
-from argparse import ArgumentParser
+from argparse import ArgumentParser, SUPPRESS
 from glob import glob
 from os import path, chdir, getcwd
 from re import findall
@@ -142,6 +141,9 @@ def _parse_args_and_execute():
                         help='prevent auto restore on command failure')
     parser.add_argument('--config', default=DEFAULT_CONFIG_PATH,
                         help='path to the configuration file')
+    # Hidden options.
+    parser.add_argument('--show-options', action='store_true', help=SUPPRESS)
+    parser.add_argument('--show-actions', action='store_true', help=SUPPRESS)
 
     # The possible sub commands.
     parser.add_argument('action', nargs='?',
@@ -166,7 +168,9 @@ def _parse_args_and_execute():
              Flag.QUIET: args.quiet, Flag.COLOR: args.color}
 
     options = {Option.CONFIG: args.config, Option.DIR: args.dir,
-               Option.VERSION: args.version, Option.NO_RESTORE: args.norestore}
+               Option.NO_RESTORE: args.norestore, Option.VERSION: args.version,
+               Option.SHOW_OPTIONS: args.show_options,
+               Option.SHOW_ACTIONS: args.show_actions}
 
     action = Action(args.action) if args.action is not None else None
 
@@ -188,11 +192,7 @@ def _execute(flags, options, action):
         :type action: Action
     """
     # Execute requested options.
-    # Show version.
-    if options[Option.VERSION]:
-        log(flags, __version__, TextType.INFO)
-        # Always exit after showing version.
-        quit()
+    _execute_options(flags, options)
 
     # Check safemode.
     if flags[Flag.SAFEMODE]:
@@ -265,6 +265,35 @@ def _execute(flags, options, action):
                         "previous state", TextType.INFO)
         else:
             log(flags, "No restore action needed", TextType.INFO)
+
+
+def _execute_options(flags, options):
+    """
+    Executes the any standalone options.
+        :param flags:
+        :type flags: dict
+        :param options: options
+        :type options: dict
+    """
+    # Show version.
+    if options[Option.VERSION]:
+        log(flags, __version__, TextType.INFO)
+        # Always exit after showing version.
+        quit()
+
+    # Show options.
+    if options[Option.SHOW_OPTIONS]:
+        print(" ".join(["--{}".format(o.value) for o in Option if
+                        o is not Option.SHOW_OPTIONS and
+                        o is not Option.SHOW_ACTIONS]))
+        # Always exit after listing options.
+        quit()
+
+    # Show actions.
+    if options[Option.SHOW_ACTIONS]:
+        print(" ".join([a.value for a in Action]))
+        # Always exit after listing actions.
+        quit()
 
 
 def _exec_init(flags, action, config_path):
@@ -637,7 +666,7 @@ def _build(conf, flags, build_flags, **opts):
         raise OpError()
 
     # Check if changelog has the correct version.
-    if not upstream_ver in version:
+    if upstream_ver not in version:
         log(flags, "The upstream version \'{}\'".format(upstream_ver) +
             " does not match the changelog version \'{}\'\n".format(version) +
             ", see gbpx {} to update before building".
