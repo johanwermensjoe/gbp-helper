@@ -327,7 +327,7 @@ def create_temp_commit(flags):
             # Apply stash and create a temporary commit.
             log(flags, "Creating temporary commit on branch \'{0}\'".
                 format(current_branch))
-            apply_stash(flags, current_branch, stash_name, False)
+            apply_stash(flags, current_branch, drop=False)
             commit_changes(flags, "Temp \'{0}\' commit.".format(current_branch))
         else:
             stash_name = None
@@ -360,7 +360,7 @@ def restore_temp_commit(flags, restore_data):
 
             log(flags, "Restoring uncommitted changes from stash to " +
                 "branch \'" + restore_data[0] + "\'")
-            apply_stash(flags, restore_data[0], restore_data[2], True)
+            apply_stash(flags, restore_data[0], drop=True)
     except Error as err:
         raise OpError(err)
 
