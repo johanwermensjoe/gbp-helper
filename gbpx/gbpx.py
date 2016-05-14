@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# TODO Add multi distribution builds
-# TODO Fix merge to debian issue
 """
 gbpx module:
 Used as a helper script for gbp-buildpackage.
@@ -17,7 +15,7 @@ from gbpxutil import verify_create_head_tag, OpError, ConfigError, \
     Setting
 from gitutil import get_head_tag_version, commit_changes, switch_branch, \
     GitError, get_next_version, get_latest_tag_version, is_version_lt, \
-    get_rep_name_from_url, clean_repository, get_branch
+    get_rep_name_from_url, clean_repository, get_branch, reset_branch
 from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
     exec_cmd, get_files_with_extension, clean_dir, \
     log_success, log_err, remove_dir, CommandError, exec_editor, \
@@ -466,10 +464,10 @@ def _commit_release(conf, flags, sign):
 
         # Check versions, prepare tarball and import it.
         try:
-            upstream_ver = get_head_tag_version(conf[Setting.UPSTREAM_TAG_TYPE],
+            upstream_ver = get_head_tag_version(conf[Setting.UPSTREAM_BRANCH],
                                                 conf[Setting.UPSTREAM_TAG_TYPE])
         except GitError:
-            # No tag was detected.
+            # No tag was detected, release version is used.
             upstream_ver = None
         source_dir = conf[Setting.PACKAGE_NAME] + "-" + release_ver
         source_dir_path = path.join(tmp_dir, source_dir)
@@ -477,8 +475,8 @@ def _commit_release(conf, flags, sign):
                              release_ver + _ORIG_TAR_FILE_EXT)
 
         # Check that the release version is greater than the upstream version.
-        if upstream_ver is not None \
-                and not is_version_lt(upstream_ver, release_ver):
+        if upstream_ver is not None and \
+                not is_version_lt(upstream_ver, release_ver):
             raise GitError("Release version is less than " +
                            "upstream version, aborting")
 
@@ -536,9 +534,17 @@ def _commit_release(conf, flags, sign):
         if not flags[Flag.SAFEMODE]:
             exec_cmd(["gbp", "import-orig", "--no-interactive", "--merge"] +
                      tag_opt + [
+                         "--merge-mode=replace",
                          "--debian-branch=" + conf[Setting.DEBIAN_BRANCH],
                          "--upstream-branch=" + conf[Setting.UPSTREAM_BRANCH],
                          tar_path])
+
+        # Reset upstream to import commit.
+        upstream_tag = conf[Setting.UPSTREAM_TAG_TYPE] + "/" + release_ver
+        log(flags,
+            "Resetting upstream branch \'" + conf[Setting.UPSTREAM_BRANCH] +
+            "\' to import commit \'" + upstream_tag + "\'")
+        reset_branch(flags, conf[Setting.UPSTREAM_BRANCH], upstream_tag)
 
     except Error as err:
         log_err(flags, err)
