@@ -1,5 +1,5 @@
 #
-# Bash tab auto-completion rules for git-buildpackage.
+# Bash tab auto-completion rules for gbpx.
 #
 
 _have gbp &&
