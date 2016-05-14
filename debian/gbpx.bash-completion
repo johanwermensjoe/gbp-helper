@@ -1,3 +1,8 @@
+#
+# Bash tab auto-completion rules for git-buildpackage.
+#
+
+_have gbp &&
 _gbpx()
 {
     local cur_word prev_word option_list action_list
