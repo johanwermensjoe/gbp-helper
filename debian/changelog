@@ -1,3 +1,14 @@
+gbpx (0.7-0~ppa1) xenial; urgency=low
+
+  * Added all required dependencies.
+  * Fixed debian/control error.
+  * Added bash-completion support to debian files.
+  * Updated dependency versions and fixed bash-completion.
+  * Imported Upstream version 0.7
+  * Updated bash-completion script.
+
+ -- Johan Wermensjö <johanwermensjoe@gmail.com>  Sat, 14 May 2016 19:49:50 +0200
+
 gbpx (0.6-0~ppa1) trusty; urgency=low
 
   * Imported Upstream version 0.6
