@@ -354,7 +354,7 @@ def clean_repository(flags):
     """ Cleans untracked files and files matched by a .gitignore file. """
     try:
         if not flags[Flag.SAFEMODE]:
-            exec_cmd(["git", "clean", "-fd"])
+            exec_cmd(["git", "clean", "-fxd"])
             exec_cmd(["git", "clean", "-fX"])
     except CommandError:
         raise GitError("Could not clean ignored files", "clean")
