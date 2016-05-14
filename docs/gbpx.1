@@ -4,7 +4,7 @@
 .\" First parameter, NAME, should be all caps
 .\" Second parameter, SECTION, should be 1-8, maybe w/ subsection
 .\" other parameters are allowed: see man(7), man(1)
-.TH GBPX 1 "October 24, 2015"
+.TH "GBPX" "1" "October 24, 2015" "gbpx 0\&.7" "gbpx Manual"
 .\" Please adjust this date whenever revising the manpage.
 .\"
 .\" Some roff macros, for reference:
@@ -17,6 +17,16 @@
 .\" .br        insert line break
 .\" .sp <n>    insert n+1 empty lines
 .\" for manpage-specific macros, see man(7)
+.\" -----------------------------------------------------------------
+.\" * set default formatting
+.\" -----------------------------------------------------------------
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.\" -----------------------------------------------------------------
+.\" * MAIN CONTENT STARTS HERE *
+.\" -----------------------------------------------------------------
 .SH NAME
 gbpx \- is a helper script to build and maintain debian packages with git
 .SH SYNOPSIS
@@ -25,23 +35,47 @@ gbpx \- is a helper script to build and maintain debian packages with git
 [\fB\-\-config\fR \fICONFIG_FILE\fR]
 [<\fBcommand\fR>]
 [\fIGIT_PATH\fR]
+
 .SH DESCRIPTION
-This manual page documents briefly the
-.B gbpx
-command.
 .PP
-.\" TeX users may be more comfortable with the \fB<whatever>\fP and
-.\" \fI<whatever>\fP escape sequences to invode bold face and italics,
-.\" respectively.
 \fBgbpx\fP is helper script to build debian packages with git.
 The script uses config files to specify branch names etc.
 for your projects and helps you maintain three core branches:
 release (for upstream dev), upstream and debian (for package).
+.PP
+The normal workflow for \fBgbpx\fP:
+.sp
+.if n \{\
+.RS 4
+.\}
+.TP
+1). (\fBOptional\fR) \fBtest-pkg\fR
+to do a quick release build without commiting to repository.
+.TP
+2). \fBcommit-release\fR
+tag and create an upstream commit from the latest release
+and merge to debian branch.
+.TP
+3). (\fBOptional\fR) \fBtest-build\fR
+quick test build without commiting to repository.
+.TP
+4). \fBupdate-changelog\fR
+update and edit the debian changelog and commit the result.
+.TP
+6). \fBcommit-build\fR
+build and tag the latest debian commit.
+.TP
+5). \fBupload\fR
+upload the latest build to configured ppa.
+.if n \{\
+.RE
+.\}
+.PP
 .SH OPTIONS
+.PP
 These programs follow the usual GNU command line syntax, with long
 options starting with two dashes (`-').
 A summary of options is included below.
-For a complete description, see the Info files.
 .TP
 .B \-h ", " \-\-help
 Show the help menu.
@@ -63,37 +97,53 @@ Prevent auto restore on command failure.
 .TP
 .B \-\-config \fICONFIG_FILE\fR
 Path to the config file (default is ./gbp\-helper).
-
+.PP
 .SH COMMANDS
+.PP
+Automatic backups are created before every command is executed (except
+\fBrestore\fR). On error the latest backup will be restored if not disabled.
 .TP
 .B test\-pkg
+.br
 Prepare a release and build the package with test options.
 Restore repository to the previous state. Used to test release changes quickly.
 .TP
 .B commit\-release
+.br
 Commit the current release to the upstream branch and tag.
 Then merge the created upstream with the debian branch.
 .TP
 .B update\-changelog
+.br
 Update the changelog for a new release and commit the changes.
 .TP
 .B test\-build
+.br
 Build the latest debian package with test options without tagging.
 .TP
 .B commit\-build
+.br
 Build the latest debian package with standard options and tag.
 The tag version is based on the latest version in debian/changelog.
 .TP
 .B upload
+.br
 Upload the last build to the configured PPA.
 Will not perform a build.
 .TP
 .B restore
+.br
 Restore the repository to a earlier state e.g before a failed command.
 The backups are stored temporarily and are created on all actions.
 .TP
 .B clone
+.br
 Clone a source repository and setup release, upstream and debian branches.
 .TP
 .B config
+.br
 Create example config file with default values.
+.PP
+.SH AUTHOR
+.PP
+Johan Wermensjoe <johanwermensjoe@gmail.com>

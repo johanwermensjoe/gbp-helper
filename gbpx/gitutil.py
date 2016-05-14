@@ -309,11 +309,10 @@ def apply_stash(flags, branch, name=None, drop=True):
     try:
         if not flags[Flag.SAFEMODE]:
             if name is not None:
-                exec_cmd(["git", "stash", "apply", "stash^{/\"" +
-                          name + "\"}"])
+                exec_cmd(["git", "stash", "apply", "stash^{/{}}".format(name)])
                 if drop:
-                    exec_cmd(["git", "stash", "drop", "stash^{/\"" +
-                              name + "\"}"])
+                    exec_cmd(["git", "stash", "drop",
+                              "stash^{/{}}".format(name)])
             else:
                 exec_cmd(["git", "stash", "apply"])
                 if drop:
@@ -351,11 +350,12 @@ def tag_head(flags, branch, tag):
                        "and may already exist", "tag")
 
 
-def clean_ignored_files(flags):
-    """ Cleans files matched by a .gitignore file. """
+def clean_repository(flags):
+    """ Cleans untracked files and files matched by a .gitignore file. """
     try:
         if not flags[Flag.SAFEMODE]:
-            exec_cmd(["git", "clean", "-Xfd"])
+            exec_cmd(["git", "clean", "-fxd"])
+            exec_cmd(["git", "clean", "-fX"])
     except CommandError:
         raise GitError("Could not clean ignored files", "clean")
 

@@ -327,7 +327,7 @@ def create_temp_commit(flags):
             # Apply stash and create a temporary commit.
             log(flags, "Creating temporary commit on branch \'{0}\'".
                 format(current_branch))
-            apply_stash(flags, current_branch, stash_name, False)
+            apply_stash(flags, current_branch, drop=False)
             commit_changes(flags, "Temp \'{0}\' commit.".format(current_branch))
         else:
             stash_name = None
@@ -360,7 +360,7 @@ def restore_temp_commit(flags, restore_data):
 
             log(flags, "Restoring uncommitted changes from stash to " +
                 "branch \'" + restore_data[0] + "\'")
-            apply_stash(flags, restore_data[0], restore_data[2], True)
+            apply_stash(flags, restore_data[0], drop=True)
     except Error as err:
         raise OpError(err)
 
@@ -432,11 +432,12 @@ def restore_backup(flags, bak_dir, num=None, name=None):
             options = []
             for f_name in bak_files:
                 option = "\t" + f_name.split('_')[0]
-                option += "\t" * (max_tab_depth - len(option) // _TAB_WIDTH)
+                option += "\t" * (max_tab_depth -
+                                  len(f_name.split('_')[0]) // _TAB_WIDTH)
                 option += datetime.strptime(
                     f_name.split('_')[1].split('.')[0],
                     _BAK_FILE_DATE_FORMAT).strftime(_BAK_DISPLAY_DATE_FORMAT)
-                options += [option]
+                options.append(option)
 
             # Check if prompt can be skipped.
             if num is not None:
