@@ -5,21 +5,21 @@ Maintainer: Johan Wermensjö, <johanwermensjoe@gmail.com>
 Build-Depends: debhelper (>= 9),
                bash-completion (>= 1:2.1),
                python3 (>= 3.2)
-Standards-Version: 3.9.5
+Standards-Version: 3.9.7
 X-Python3-Version: >= 3.2
 X-Python-Version: >= 2.7
 
 Package: gbpx
 Architecture: all
 Depends: ${misc:Depends}, ${python3:Depends},
-         git-buildpackage (>= 0.6.9),
-         dh-make (>= 0.63),
-         debhelper (>= 9),
-         dpkg-dev (>= 1.17),
+         git-buildpackage (>= 0.7.2),
+         dh-make (>= 2.2),
+         debhelper (>= 9.2),
+         dpkg-dev (>= 1.18),
          lintian (>= 2.5),
          dput (>= 0.9.6),
-         git (>= 1:1.9),
-         tar (>= 1.27)
+         git (>= 1:2.7),
+         tar (>= 1.28)
 Description: is a helper script to build debian packages with git
  The script uses config files to specify branch names etc
  for your projects and helps you maintain three core branches:

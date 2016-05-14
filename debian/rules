@@ -19,4 +19,4 @@
 
 # Main packaging script.
 %:
-	dh $@ --with python3,bash-completion
+	dh $@ --with bash-completion --with python3
