@@ -7,9 +7,10 @@ from datetime import datetime
 from enum import Enum
 from os import path, getcwd
 from time import strftime
+from re import findall, match
 
 from gbpxargs import Flag
-from gitutil import get_head_tags, get_head_tag_version, tag_head, \
+from gitutil import get_head_tags, get_head_tag_version_str, tag_head, \
     get_branch, get_head_commit, is_working_dir_clean, stash_changes, \
     apply_stash, commit_changes, switch_branch, reset_branch, check_git_rep, \
     GitError
@@ -92,6 +93,7 @@ class Setting(Enum):
 
     BUILD_FLAGS = 'buildFlags'
     TEST_BUILD_FLAGS = 'testBuildFlags'
+    BUILD_CMD = 'buildCommand'
 
     PACKAGE_NAME = 'packageName'
     DISTRIBUTION = 'distribution'
@@ -101,13 +103,16 @@ class Setting(Enum):
 
     PPA_NAME = 'ppa'
 
+    EDITOR_CMD = 'editorCommand'
+
 
 class _Section(Enum):
-    GIT = "GIT"
-    SIGNING = "SIGNING"
-    BUILD = "BUILD"
-    PACKAGE = "PACKAGE"
-    UPLOAD = "UPLOAD"
+    GIT = 'GIT'
+    SIGNING = 'SIGNING'
+    BUILD = 'BUILD'
+    PACKAGE = 'PACKAGE'
+    UPLOAD = 'UPLOAD'
+    SYSTEM = 'SYSTEM'
 
 
 class _BaseSetting(object):
@@ -143,17 +148,20 @@ _CONFIG = {
 
     Setting.BUILD_FLAGS: _BaseSetting(None, _Section.BUILD, False, str),
     Setting.TEST_BUILD_FLAGS: _BaseSetting(None, _Section.BUILD, False, str),
+    Setting.BUILD_CMD: _BaseSetting("debuild", _Section.BUILD, True, str),
 
     Setting.PACKAGE_NAME: _BaseSetting(None, _Section.PACKAGE, False, str),
     Setting.DISTRIBUTION: _BaseSetting(None, _Section.PACKAGE, False, str),
     Setting.URGENCY: _BaseSetting("low", _Section.PACKAGE, False, str),
-    Setting.DEBIAN_VERSION_SUFFIX: _BaseSetting("-0~ppa1", _Section.PACKAGE,
+    Setting.DEBIAN_VERSION_SUFFIX: _BaseSetting("-0ppa1", _Section.PACKAGE,
                                                 False, str),
     Setting.EXCLUDE_FILES: _BaseSetting(
         DEFAULT_CONFIG_PATH + ",README.md,LICENSE", _Section.PACKAGE, False,
         lambda s: [se.strip() for se in str(s).split(_DEL_EXCLUDE)]),
 
     Setting.PPA_NAME: _BaseSetting(None, _Section.UPLOAD, False, str),
+
+    Setting.EDITOR_CMD: _BaseSetting("editor", _Section.SYSTEM, True, str)
 }
 
 
@@ -240,6 +248,70 @@ def get_config_default(key):
     return _CONFIG[key].default
 
 
+####################### Versioning Utilities ############################
+#########################################################################
+### This section defines functions for version parsing and comparison.
+#########################################################################
+
+
+def is_version_lt(ver1, ver2):
+    """ Checks whether the first version string is lesser than second. """
+    return compare_versions(ver1, ver2) < 0
+
+
+def is_version_eq(ver1, ver2):
+    """ Checks whether the first version string is equal to the second. """
+    return compare_versions(ver1, ver2) == 0
+
+
+def is_version_gt(ver1, ver2):
+    """ Checks whether the first version string is greater than second. """
+    return compare_versions(ver1, ver2) > 0
+
+
+def compare_versions(ver1, ver2):
+    """ Compares two versions. """
+    ver_s = [ver1, ver2]
+    ver_s.sort(key=lambda s: findall(r'''\d+''', s))
+    if ver1 == ver2:
+        return 0
+    elif ver_s[0] == ver1:
+        return -1
+    else:
+        return 1
+
+
+def get_next_upstream_version(version_str):
+    """
+    Produces the next logical upstream version
+    from the given version string.
+    """
+    # Split if the version has a 1.0-0ppa1 form.
+    upstream_part = version_str.split('-', 1)
+    ver_part = upstream_part[0].split('.')
+    ver_part[-1] = str(int(ver_part[-1]) + 1)
+    return '.'.join(ver_part) + \
+           ("-" + upstream_part[1] if len(upstream_part) > 1 else "")
+
+
+def get_next_package_build_version(version_str):
+    """
+    Produces the next logical package build version
+    from the given version string.
+    """
+    ppa_match = match(r'(?i)(^.*ppa)(\d+)(.*$)', version_str)
+    ubuntu_match = match(r'(?i)(^.*ubuntu)(\d+)(.*$)', version_str)
+    if ppa_match is not None:
+        return "{}{}{}".format(ppa_match.group(1),
+                               int(ppa_match.group(2)) + 1,
+                               ppa_match.group(3))
+    elif ubuntu_match is not None:
+        return "{}{}{}".format(ubuntu_match.group(1),
+                               int(ubuntu_match.group(2)) + 1,
+                               ubuntu_match.group(3))
+    return version_str
+
+
 ####################### Combined Operations ############################
 #########################################################################
 ### This section defines functions combining IO/UI with Git operations.
@@ -256,14 +328,14 @@ _BAK_DISPLAY_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 _TAB_WIDTH = 8
 
 
-def verify_create_head_tag(flags, branch, tag_type, version=None):
+def verify_create_head_tag(flags, branch, tag_type, version_str=None):
     """
     Verifies or creates a version tag for a branch HEAD.
     If tag needs to be created and no version is given,
     user will be prompted for version.
-    - branch    -- The branch to tag.
-    - tag_type  -- The tag type (<tag_type>/<version>).
-    - version   -- The version to use.
+    - branch        -- The branch to tag.
+    - tag_type      -- The tag type (<tag_type>/<version>).
+    - version_str   -- The version string to use.
     Returns the a tuple with version created or found
     and True if created otherwise False. (<version>, <created>)
     """
@@ -272,28 +344,28 @@ def verify_create_head_tag(flags, branch, tag_type, version=None):
         if get_head_tags(branch, tag_type):
             log(flags, "The HEAD commit on branch \'" + branch +
                 "\' is already tagged, skipping tagging")
-            version = get_head_tag_version(branch, tag_type)
-            return version, tag_type + "/" + version, False
+            version_str = get_head_tag_version_str(branch, tag_type)
+            return version_str, tag_type + "/" + version_str, False
         else:
             log(flags, "The HEAD commit on branch \'" + branch +
                 "\' is not tagged correctly")
-            if version is None:
+            if version_str is None:
                 # Prompt user to tag the HEAD of release branch.
                 raw_ver = prompt_user_input("Enter release version to tag",
                                             True)
                 if raw_ver is not None:
-                    version = raw_ver
+                    version_str = raw_ver
                 else:
                     raise OpError(msg="Tagging of HEAD commit on branch " +
                                       "\'" + branch + "\' aborted by user")
 
-            # Tag using the given version.
-            tag = tag_type + "/" + version
+            # Tag using the given version string.
+            tag = tag_type + "/" + version_str
             if not flags[Flag.SAFEMODE]:
                 log(flags, "Tagging HEAD commit on branch \'" + branch +
                     "\' as \'" + tag + "\'")
                 tag_head(flags, branch, tag)
-            return version, tag, True
+            return version_str, tag, True
     except Error as err:
         raise OpError(err)
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# TODO Support new distribution versions for update changelog/(build) _._-X~ppa_
 """
 gbpx module:
 Used as a helper script for gbp-buildpackage.
@@ -12,11 +11,12 @@ from re import findall
 from gbpxargs import Flag, Option, Action
 from gbpxutil import verify_create_head_tag, OpError, ConfigError, \
     restore_backup, create_ex_config, add_backup, restore_temp_commit, \
-    create_temp_commit, get_config, get_config_default, DEFAULT_CONFIG_PATH, \
-    Setting
-from gitutil import get_head_tag_version, commit_changes, switch_branch, \
-    GitError, get_next_version, get_latest_tag_version, is_version_lt, \
-    get_rep_name_from_url, clean_repository, get_branch, reset_branch
+    get_next_upstream_version, is_version_lt, create_temp_commit, get_config, \
+    get_config_default, DEFAULT_CONFIG_PATH, Setting, \
+    get_next_package_build_version
+from gitutil import get_head_tag_version_str, commit_changes, switch_branch, \
+    GitError, get_latest_tag_version, get_rep_name_from_url, clean_repository, \
+    get_branch, reset_branch
 from ioutil import Error, log, TextType, prompt_user_input, mkdirs, \
     exec_cmd, get_files_with_extension, clean_dir, \
     log_success, log_err, remove_dir, CommandError, exec_editor, \
@@ -37,8 +37,6 @@ _SOURCE_CHANGES_FILE_EXT = "source.changes"
 _CHANGES_FILE_EXT = ".changes"
 _ORIG_TAR_FILE_EXT = ".orig.tar.gz"
 _MASTER_BRANCH = "master"
-_BUILD_CMD = "debuild"
-_EDITOR_CMD = "editor"
 _BUILD_NAME = "final"
 _TEST_BUILD_NAME = "test"
 
@@ -125,24 +123,31 @@ def _parse_args_and_execute():
         description='Maintain debian packages with git and gbp.')
 
     # Optional arguments.
-    parser.add_argument('-V', '--version', action='store_true',
+    parser.add_argument('-V', '--{}'.format(Option.VERSION.value),
+                        action='store_true',
                         help='shows the current version number')
     group_vq = parser.add_mutually_exclusive_group()
-    group_vq.add_argument('-v', '--verbose', action='store_true',
-                          help='enable verbose mode')
-    group_vq.add_argument("-q", "--quiet", action="store_true",
-                          help='enable quiet mode')
-    parser.add_argument('-c', '--color', action='store_true',
-                        help='enable colored output')
-    parser.add_argument('-s', '--safemode', action='store_true',
-                        help='prevent any file changes')
-    parser.add_argument('-n', '--norestore', action='store_true',
+    group_vq.add_argument('-v', '--{}'.format(Flag.VERBOSE.value),
+                          action='store_true', help='enable verbose mode')
+    group_vq.add_argument('-q', '--{}'.format(Flag.QUIET.value),
+                          action="store_true", help='enable quiet mode')
+    parser.add_argument('-c', '--{}'.format(Flag.COLOR.value),
+                        action='store_true', help='enable colored output')
+    parser.add_argument('-s', '--{}'.format(Flag.SAFEMODE.value),
+                        action='store_true', help='prevent any file changes')
+    parser.add_argument('-n', '--{}'.format(Option.NO_RESTORE.value),
+                        action='store_true',
                         help='prevent auto restore on command failure')
-    parser.add_argument('--config', default=DEFAULT_CONFIG_PATH,
+    parser.add_argument('--{}'.format(Option.CONFIG.value),
+                        default=DEFAULT_CONFIG_PATH,
                         help='path to the configuration file')
     # Hidden options.
-    parser.add_argument('--show-options', action='store_true', help=SUPPRESS)
-    parser.add_argument('--show-actions', action='store_true', help=SUPPRESS)
+    parser.add_argument('--{}'.format(Option.SHOW_FLAGS.value),
+                        action='store_true', help=SUPPRESS)
+    parser.add_argument('--{}'.format(Option.SHOW_OPTIONS.value),
+                        action='store_true', help=SUPPRESS)
+    parser.add_argument('--{}'.format(Option.SHOW_ACTIONS.value),
+                        action='store_true', help=SUPPRESS)
 
     # The possible sub commands.
     parser.add_argument('action', nargs='?',
@@ -158,7 +163,7 @@ def _parse_args_and_execute():
                         help="the main action (see gbpx(1)) for details")
 
     # General args.
-    parser.add_argument('dir', nargs='?', default=getcwd(),
+    parser.add_argument(Option.DIR.value, nargs='?', default=getcwd(),
                         help="path to git repository")
 
     args = parser.parse_args()
@@ -167,7 +172,8 @@ def _parse_args_and_execute():
              Flag.QUIET: args.quiet, Flag.COLOR: args.color}
 
     options = {Option.CONFIG: args.config, Option.DIR: args.dir,
-               Option.NO_RESTORE: args.norestore, Option.VERSION: args.version,
+               Option.NO_RESTORE: args.no_restore, Option.VERSION: args.version,
+               Option.SHOW_FLAGS: args.show_flags,
                Option.SHOW_OPTIONS: args.show_options,
                Option.SHOW_ACTIONS: args.show_actions}
 
@@ -280,9 +286,16 @@ def _execute_options(flags, options):
         # Always exit after showing version.
         quit()
 
+    # Show flags.
+    if options[Option.SHOW_FLAGS]:
+        print(" ".join(["--{}".format(f.value) for f in Flag]))
+        # Always exit after listing flags.
+        quit()
+
     # Show options.
     if options[Option.SHOW_OPTIONS]:
         print(" ".join(["--{}".format(o.value) for o in Option if
+                        o is not Option.SHOW_FLAGS and
                         o is not Option.SHOW_OPTIONS and
                         o is not Option.SHOW_ACTIONS]))
         # Always exit after listing options.
@@ -415,7 +428,7 @@ def _test_pkg(conf, flags):
         # Get the tagged version from the release branch.
         latest_release_ver = get_latest_tag_version(
             conf[Setting.RELEASE_BRANCH], conf[Setting.RELEASE_TAG_TYPE])
-        next_release_ver = get_next_version(latest_release_ver)
+        next_release_ver = get_next_upstream_version(latest_release_ver)
         create_ver = verify_create_head_tag(flags,
                                             conf[Setting.RELEASE_BRANCH],
                                             conf[Setting.RELEASE_TAG_TYPE],
@@ -465,8 +478,8 @@ def _commit_release(conf, flags, sign):
 
         # Check versions, prepare tarball and import it.
         try:
-            upstream_ver = get_head_tag_version(conf[Setting.UPSTREAM_BRANCH],
-                                                conf[Setting.UPSTREAM_TAG_TYPE])
+            upstream_ver = get_head_tag_version_str(conf[Setting.UPSTREAM_BRANCH],
+                                                    conf[Setting.UPSTREAM_TAG_TYPE])
         except GitError:
             # No tag was detected, release version is used.
             upstream_ver = None
@@ -582,16 +595,27 @@ def _update_changelog(conf, flags, **opts):
     if version is None:
         log(flags, "Version not set, using standard format")
         try:
-            upstream_ver = get_head_tag_version(
+            # Get the latest upstream version.
+            upstream_ver = get_head_tag_version_str(
                 conf[Setting.UPSTREAM_BRANCH], conf[Setting.UPSTREAM_TAG_TYPE])
-            debian_ver = upstream_ver + conf[Setting.DEBIAN_VERSION_SUFFIX]
-            log(flags, "Using version \'" + debian_ver + "\'")
+
+            # Get the latest debian version.
+            debian_ver = get_latest_tag_version(conf[Setting.DEBIAN_BRANCH],
+                                                conf[Setting.DEBIAN_TAG_TYPE])
+            # Check if the latest upstream version is the same.
+            if debian_ver.startswith(upstream_ver):
+                # The new version should only increment package build version.
+                debian_ver = get_next_package_build_version(debian_ver)
+            else:
+                # The new version should use the standard debian version suffix.
+                debian_ver = upstream_ver + conf[Setting.DEBIAN_VERSION_SUFFIX]
+            log(flags, "New guessed version \'{}\'".format(debian_ver))
         except Error as err:
             log_err(flags, err)
             raise OpError()
     else:
         debian_ver = version
-        log(flags, "Updating changelog with version \'{}\'".format(debian_ver))
+    log(flags, "Updating changelog with version \'{}\'".format(debian_ver))
 
     distribution_opt = (["--distribution=" + conf[Setting.DISTRIBUTION]]
                         if conf[Setting.DISTRIBUTION] is not None else [])
@@ -610,7 +634,20 @@ def _update_changelog(conf, flags, **opts):
 
             # Check if editor should be opened.
             if editor:
-                exec_editor(_EDITOR_CMD, _CHANGELOG_PATH)
+                exec_editor(conf[Setting.EDITOR_CMD], _CHANGELOG_PATH)
+
+        # Check if the version vas manually changed.
+        try:
+            ch_ver = exec_cmd(
+                ["dpkg-parsechangelog", "--show-field", "Version"])
+            if debian_ver != ch_ver:
+                debian_ver = ch_ver
+                log(flags,
+                    "Different version \'{}\' detected, using it instead".
+                    format(debian_ver))
+        except Error as err:
+            log_err(flags, err)
+            raise OpError()
 
         # Check if changes should be committed.
         if commit:
@@ -650,7 +687,7 @@ def _build(conf, flags, build_flags, **opts):
     # Check if treeish is used for upstream.
     if upstream_treeish is None:
         try:
-            upstream_ver = get_head_tag_version(
+            upstream_ver = get_head_tag_version_str(
                 conf[Setting.UPSTREAM_BRANCH], conf[Setting.UPSTREAM_TAG_TYPE])
             log(flags, "Building debian package for upstream version \'" +
                 upstream_ver + "\'")
@@ -662,8 +699,8 @@ def _build(conf, flags, build_flags, **opts):
             format(upstream_treeish))
 
     # Prepare build.
-    log(flags,
-        "Switching to debian branch \'" + conf[Setting.DEBIAN_BRANCH] + "\'")
+    log(flags, "Switching to debian branch \'{}\'".
+        format(conf[Setting.DEBIAN_BRANCH]))
     switch_branch(conf[Setting.DEBIAN_BRANCH])
 
     try:
@@ -673,7 +710,7 @@ def _build(conf, flags, build_flags, **opts):
         raise OpError()
 
     # Check if changelog has the correct version.
-    if upstream_ver not in version:
+    if not version.startswith(upstream_ver):
         log(flags, "The upstream version \'{}\'".format(upstream_ver) +
             " does not match the changelog version \'{}\'\n".format(version) +
             ", see gbpx {} to update before building".
@@ -716,8 +753,9 @@ def _build(conf, flags, build_flags, **opts):
                 TextType.WARNING)
 
     # Prepare build command.
-    build_cmd = " ".join([_BUILD_CMD, "--no-lintian"] + sign_build_opt +
-                         ([build_flags] if build_flags is not None else []))
+    build_cmd = " ".join(
+        [conf[Setting.BUILD_CMD], "--no-lintian"] + sign_build_opt +
+        ([build_flags] if build_flags is not None else []))
 
     try:
         if not flags[Flag.SAFEMODE]:
