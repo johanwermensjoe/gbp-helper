@@ -1,3 +1,13 @@
+gbpx (0.8-0ppa1) xenial; urgency=low
+
+  * Fixed typo in bash-completion.
+  * Updated bash-completion with file completion.
+  * Updated bash-completion to use flag names.
+  * Fixed spelling error.
+  * Imported Upstream version 0.8
+
+ -- Johan Wermensjö <johanwermensjoe@gmail.com>  Mon, 16 May 2016 20:00:45 +0200
+
 gbpx (0.7-0~ppa1) xenial; urgency=low
 
   * Added all required dependencies.
