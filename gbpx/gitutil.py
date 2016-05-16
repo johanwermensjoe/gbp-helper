@@ -130,7 +130,7 @@ def get_version_from_tag(tag, tag_type):
                        "\'" + tag + "\'")
 
 
-def get_head_tag_version(branch, tag_type):
+def get_head_tag_version_str(branch, tag_type):
     """
     Retrieves the HEAD tag version (<tag_type>/<version>) for a branch.
     Errors will be raised as GitError,
@@ -150,39 +150,6 @@ def get_latest_tag_version(branch, tag_type):
     # Get the latest tag.
     latest_tag = get_latest_tag(branch, tag_type)
     return get_version_from_tag(latest_tag, tag_type)
-
-
-def is_version_lt(ver1, ver2):
-    """ Checks whether the first version string is greater than second. """
-    return compare_versions(ver1, ver2) < 0
-
-
-def compare_versions(ver1, ver2):
-    """ Compares two versions. """
-    ver_s = [ver1, ver2]
-    ver_s.sort(key=lambda s: findall(r'''\d+''', s))
-    if ver1 == ver2:
-        return 0
-    elif ver_s[0] == ver1:
-        return -1
-    else:
-        return 1
-
-
-def get_next_version(version):
-    """
-    Produces the next logical version from the given version string.
-    Errors will be raised as GitError.
-    """
-    try:
-        # Split if the version has a 1.0-0ppa1 form.
-        base_part = version.split('~', 1)
-        ver_part = base_part[0].split('.')
-        ver_part[-1] = str(int(ver_part[-1]) + 1)
-        return '.'.join(ver_part) + \
-               (("-" + base_part[1]) if len(base_part) > 1 else "")
-    except Error:
-        raise GitError("Version \'" + version + "\' could not be incremented")
 
 
 def is_working_dir_clean():

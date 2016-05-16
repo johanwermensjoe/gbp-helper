@@ -17,10 +17,12 @@ class Option(Enum):
     """ Execution option identifiers. """
     CONFIG = 'config'
     DIR = 'dir'
-    NO_RESTORE = 'norestore'
+    NO_RESTORE = 'no-restore'
     VERSION = 'version'
-    SHOW_OPTIONS = 'showoptions'
-    SHOW_ACTIONS = 'showactions'
+    HELP = 'help'
+    SHOW_FLAGS = 'show-flags'
+    SHOW_OPTIONS = 'show-options'
+    SHOW_ACTIONS = 'show-actions'
 
 
 class Action(Enum):
