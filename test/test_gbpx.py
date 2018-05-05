@@ -1,12 +1,12 @@
 import unittest
 from os import path, chdir, listdir
 
-from gbpx import execute_with
-from gbpxargs import Action, Flag
-from gbpxutil import verify_create_head_tag
-from gitutil import init_repository, create_branch, switch_branch, \
+from gbpx.gbpx import execute_with
+from gbpx.gbpxargs import Action, Flag
+from gbpx.gbpxutil import verify_create_head_tag
+from gbpx.gitutil import init_repository, create_branch, switch_branch, \
     commit_changes
-from ioutil import create_file, mkdirs, remove_dir
+from gbpx.ioutil import create_file, mkdirs, remove_dir
 
 _TEST_FILE = "test.txt"
 _TEST_FILE2 = "test2.txt"
@@ -19,8 +19,8 @@ _RELEASE_TAG_TYPE = "release"
 _UPSTREAM = "upstream"
 _DEBIAN = "debian"
 
-_FLAGS = {Flag.SAFEMODE: False, Flag.QUIET: False, Flag.VERBOSE: False,
-          Flag.COLOR: False}
+_FLAGS = {Flag.SAFEMODE: False, Flag.QUIET.value: False, Flag.VERBOSE.value: False,
+          Flag.COLOR.value: False}
 
 
 def set_up():
